@@ -1,6 +1,8 @@
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
 
+#include <glm/glm.hpp>
+
 #include <boost/lexical_cast.hpp>
 #include <boost/program_options.hpp>
 #include <boost/regex.hpp>
@@ -51,7 +53,7 @@ constexpr uint32_t FPS = 100;
                                     return false; \
                                   }
 
-bool RenderInitialImage(const PhysicalDevice& physicalDevice, VkDevice device, VkQueue graphicsQueue, Position* positions, uint32_t positionCount, const Image2D& image, const Buffer& quadHostBuffer, const Buffer& quadDeviceBuffer, VkDeviceSize indexOffset, const Swapchain& swapchain);
+bool RenderInitialImage(const PhysicalDevice& physicalDevice, VkDevice device, VkQueue graphicsQueue, uint32_t* positions, uint32_t positionCount, const Image2D& image, const Buffer& quadHostBuffer, const Buffer& quadDeviceBuffer, VkDeviceSize indexOffset, const Swapchain& swapchain);
 
 void error_callback(int error, const char* message)
 {
@@ -163,6 +165,12 @@ int main(int argc, char** argv)
   glfwGetWindowSize(window, &width, &height);
 
   glfwSetWindowPos(window, (mode->width - width) / 2, (mode->height - height) / 2);
+  
+  auto onScroll = [](GLFWwindow* window, double xoffset, double yoffset)
+  {
+    std::cout << "[ " << xoffset << ", " << yoffset << " ]" << std::endl;
+  };
+  glfwSetScrollCallback(window, onScroll);
 
   VkSurfaceKHR surface;
   auto result = glfwCreateWindowSurface(instance, window, nullptr, &surface);
@@ -182,6 +190,7 @@ int main(int argc, char** argv)
     GETOUT(1);
   }
 
+  
 
   VkPhysicalDeviceFeatures features = {};
   features.fragmentStoresAndAtomics = VK_TRUE;
@@ -247,14 +256,13 @@ int main(int argc, char** argv)
   memcpy(data, indices.data(), indexSize);
   vkUnmapMemory(device, hostBuffer.memory);
 
-  std::vector<Position> positions = { };
-  std::unordered_set<Position> set = { };
+  std::vector<uint32_t> positions(WIDTH * HEIGHT);
 
   auto duration = std::chrono::system_clock::now().time_since_epoch();
   auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
 
-  boost::uniform_int<> distWidth(1, WIDTH);
-  boost::uniform_int<> distHeight(1, HEIGHT);
+  boost::uniform_int<> distWidth(0, WIDTH - 1);
+  boost::uniform_int<> distHeight(0, HEIGHT - 1);
   boost::mt19937 gen;
   gen.seed(uint32_t(millis));
   boost::variate_generator<boost::mt19937&, boost::uniform_int<> > dieWidth(gen, distWidth);
@@ -262,64 +270,63 @@ int main(int argc, char** argv)
 
   for (size_t i = 0; i < 500000; i++)
   {
-    set.insert({ float(dieWidth()), float(dieHeight()) });
+    uint32_t index = dieWidth() + dieHeight() * WIDTH;
+
+    positions[index] = 1;
   }
 
-  positions.insert(std::begin(positions), std::begin(set), std::end(set));
-  
-
   // Pulsar
-  //positions.push_back({ 5.0f, 3.0f });
-  //positions.push_back({ 6.0f, 3.0f });
-  //positions.push_back({ 7.0f, 3.0f });
-  //positions.push_back({ 3.0f, 5.0f });
-  //positions.push_back({ 3.0f, 6.0f });
-  //positions.push_back({ 3.0f, 7.0f });
-  //positions.push_back({ 5.0f, 8.0f });
-  //positions.push_back({ 6.0f, 8.0f });
-  //positions.push_back({ 7.0f, 8.0f });
-  //positions.push_back({ 8.0f, 5.0f });
-  //positions.push_back({ 8.0f, 6.0f });
-  //positions.push_back({ 8.0f, 7.0f });
+  /*positions.push_back({ 5.0f, 3.0f });
+  positions.push_back({ 6.0f, 3.0f });
+  positions.push_back({ 7.0f, 3.0f });
+  positions.push_back({ 3.0f, 5.0f });
+  positions.push_back({ 3.0f, 6.0f });
+  positions.push_back({ 3.0f, 7.0f });
+  positions.push_back({ 5.0f, 8.0f });
+  positions.push_back({ 6.0f, 8.0f });
+  positions.push_back({ 7.0f, 8.0f });
+  positions.push_back({ 8.0f, 5.0f });
+  positions.push_back({ 8.0f, 6.0f });
+  positions.push_back({ 8.0f, 7.0f });
 
-  //positions.push_back({ 10.0f, 5.0f });
-  //positions.push_back({ 10.0f, 6.0f });
-  //positions.push_back({ 10.0f, 7.0f });
-  //positions.push_back({ 11.0f, 8.0f });
-  //positions.push_back({ 12.0f, 8.0f });
-  //positions.push_back({ 13.0f, 8.0f });
-  //positions.push_back({ 15.0f, 5.0f });
-  //positions.push_back({ 15.0f, 6.0f });
-  //positions.push_back({ 15.0f, 7.0f });
-  //positions.push_back({ 11.0f, 3.0f });
-  //positions.push_back({ 12.0f, 3.0f });
-  //positions.push_back({ 13.0f, 3.0f });
+  positions.push_back({ 10.0f, 5.0f });
+  positions.push_back({ 10.0f, 6.0f });
+  positions.push_back({ 10.0f, 7.0f });
+  positions.push_back({ 11.0f, 8.0f });
+  positions.push_back({ 12.0f, 8.0f });
+  positions.push_back({ 13.0f, 8.0f });
+  positions.push_back({ 15.0f, 5.0f });
+  positions.push_back({ 15.0f, 6.0f });
+  positions.push_back({ 15.0f, 7.0f });
+  positions.push_back({ 11.0f, 3.0f });
+  positions.push_back({ 12.0f, 3.0f });
+  positions.push_back({ 13.0f, 3.0f });
 
-  //positions.push_back({ 11.0f, 10.0f });
-  //positions.push_back({ 12.0f, 10.0f });
-  //positions.push_back({ 13.0f, 10.0f });
-  //positions.push_back({ 10.0f, 11.0f });
-  //positions.push_back({ 10.0f, 12.0f });
-  //positions.push_back({ 10.0f, 13.0f });
-  //positions.push_back({ 11.0f, 15.0f });
-  //positions.push_back({ 12.0f, 15.0f });
-  //positions.push_back({ 13.0f, 15.0f });
-  //positions.push_back({ 15.0f, 11.0f });
-  //positions.push_back({ 15.0f, 12.0f });
-  //positions.push_back({ 15.0f, 13.0f });
+  positions.push_back({ 11.0f, 10.0f });
+  positions.push_back({ 12.0f, 10.0f });
+  positions.push_back({ 13.0f, 10.0f });
+  positions.push_back({ 10.0f, 11.0f });
+  positions.push_back({ 10.0f, 12.0f });
+  positions.push_back({ 10.0f, 13.0f });
+  positions.push_back({ 11.0f, 15.0f });
+  positions.push_back({ 12.0f, 15.0f });
+  positions.push_back({ 13.0f, 15.0f });
+  positions.push_back({ 15.0f, 11.0f });
+  positions.push_back({ 15.0f, 12.0f });
+  positions.push_back({ 15.0f, 13.0f });
 
-  //positions.push_back({ 5.0f, 15.0f });
-  //positions.push_back({ 6.0f, 15.0f });
-  //positions.push_back({ 7.0f, 15.0f });
-  //positions.push_back({ 3.0f, 11.0f });
-  //positions.push_back({ 3.0f, 12.0f });
-  //positions.push_back({ 3.0f, 13.0f });
-  //positions.push_back({ 5.0f, 10.0f });
-  //positions.push_back({ 6.0f, 10.0f });
-  //positions.push_back({ 7.0f, 10.0f });
-  //positions.push_back({ 8.0f, 11.0f });
-  //positions.push_back({ 8.0f, 12.0f });
-  //positions.push_back({ 8.0f, 13.0f });
+  positions.push_back({ 5.0f, 15.0f });
+  positions.push_back({ 6.0f, 15.0f });
+  positions.push_back({ 7.0f, 15.0f });
+  positions.push_back({ 3.0f, 11.0f });
+  positions.push_back({ 3.0f, 12.0f });
+  positions.push_back({ 3.0f, 13.0f });
+  positions.push_back({ 5.0f, 10.0f });
+  positions.push_back({ 6.0f, 10.0f });
+  positions.push_back({ 7.0f, 10.0f });
+  positions.push_back({ 8.0f, 11.0f });
+  positions.push_back({ 8.0f, 12.0f });
+  positions.push_back({ 8.0f, 13.0f });*/
 
   // Toad
   //positions.push_back({ 2.0f, 4.0f });
@@ -328,54 +335,96 @@ int main(int argc, char** argv)
   //positions.push_back({ 3.0f, 3.0f });
   //positions.push_back({ 4.0f, 3.0f });
   //positions.push_back({ 5.0f, 3.0f });
-
-  // Gosper glider gun
-  //positions.push_back({ 2.0f, 5.0f });
-  //positions.push_back({ 2.0f, 6.0f });
-  //positions.push_back({ 3.0f, 5.0f });
-  //positions.push_back({ 3.0f, 6.0f });
-
-  //positions.push_back({ 36.0f, 3.0f });
-  //positions.push_back({ 36.0f, 4.0f });
-  //positions.push_back({ 37.0f, 3.0f });
-  //positions.push_back({ 37.0f, 4.0f });
-
-  //positions.push_back({ 12.0f, 5.0f });
-  //positions.push_back({ 12.0f, 6.0f });
-  //positions.push_back({ 12.0f, 7.0f });
-  //positions.push_back({ 13.0f, 8.0f });
-  //positions.push_back({ 14.0f, 9.0f });
-  //positions.push_back({ 15.0f, 9.0f });
-  //positions.push_back({ 16.0f, 6.0f });
-  //positions.push_back({ 19.0f, 6.0f });
-  //positions.push_back({ 18.0f, 6.0f });
-  //positions.push_back({ 18.0f, 7.0f });
-  //positions.push_back({ 17.0f, 8.0f });
-  //positions.push_back({ 13.0f, 4.0f });
-  //positions.push_back({ 14.0f, 3.0f });
-  //positions.push_back({ 15.0f, 3.0f });
-  //positions.push_back({ 17.0f, 4.0f });
-  //positions.push_back({ 18.0f, 5.0f });
-
-  //positions.push_back({ 22.0f, 3.0f });
-  //positions.push_back({ 23.0f, 3.0f });
-  //positions.push_back({ 22.0f, 4.0f });
-  //positions.push_back({ 23.0f, 4.0f });
-  //positions.push_back({ 22.0f, 5.0f });
-  //positions.push_back({ 23.0f, 5.0f });
-  //positions.push_back({ 24.0f, 2.0f });
-  //positions.push_back({ 24.0f, 6.0f });
-  //positions.push_back({ 26.0f, 2.0f });
-  //positions.push_back({ 26.0f, 1.0f });
-  //positions.push_back({ 26.0f, 6.0f });
-  //positions.push_back({ 26.0f, 7.0f });
-
-  /*for (auto& pos : positions)
+  
+  /*
+  for (uint16_t i = 0; i < (1920 / 50); i++)
   {
-    pos.x += 100.0f;
-    pos.y += 100.0f;
-  }*/
+    // Gosper glider gun
+    positions.push_back({ 2.0f, 5.0f });
+    positions.push_back({ 2.0f, 6.0f });
+    positions.push_back({ 3.0f, 5.0f });
+    positions.push_back({ 3.0f, 6.0f });
 
+    positions.push_back({ 36.0f, 3.0f });
+    positions.push_back({ 36.0f, 4.0f });
+    positions.push_back({ 37.0f, 3.0f });
+    positions.push_back({ 37.0f, 4.0f });
+
+    positions.push_back({ 12.0f, 5.0f });
+    positions.push_back({ 12.0f, 6.0f });
+    positions.push_back({ 12.0f, 7.0f });
+    positions.push_back({ 13.0f, 8.0f });
+    positions.push_back({ 14.0f, 9.0f });
+    positions.push_back({ 15.0f, 9.0f });
+    positions.push_back({ 16.0f, 6.0f });
+    positions.push_back({ 19.0f, 6.0f });
+    positions.push_back({ 18.0f, 6.0f });
+    positions.push_back({ 18.0f, 7.0f });
+    positions.push_back({ 17.0f, 8.0f });
+    positions.push_back({ 13.0f, 4.0f });
+    positions.push_back({ 14.0f, 3.0f });
+    positions.push_back({ 15.0f, 3.0f });
+    positions.push_back({ 17.0f, 4.0f });
+    positions.push_back({ 18.0f, 5.0f });
+
+    positions.push_back({ 22.0f, 3.0f });
+    positions.push_back({ 23.0f, 3.0f });
+    positions.push_back({ 22.0f, 4.0f });
+    positions.push_back({ 23.0f, 4.0f });
+    positions.push_back({ 22.0f, 5.0f });
+    positions.push_back({ 23.0f, 5.0f });
+    positions.push_back({ 24.0f, 2.0f });
+    positions.push_back({ 24.0f, 6.0f });
+    positions.push_back({ 26.0f, 2.0f });
+    positions.push_back({ 26.0f, 1.0f });
+    positions.push_back({ 26.0f, 6.0f });
+    positions.push_back({ 26.0f, 7.0f });
+
+    for (auto& pos : positions)
+    {
+      pos.x += 50.0f;
+    }
+  }
+
+  positions.push_back({ 2.0f, 5.0f });
+  positions.push_back({ 2.0f, 6.0f });
+  positions.push_back({ 3.0f, 5.0f });
+  positions.push_back({ 3.0f, 6.0f });
+
+  positions.push_back({ 36.0f, 3.0f });
+  positions.push_back({ 36.0f, 4.0f });
+  positions.push_back({ 37.0f, 3.0f });
+  positions.push_back({ 37.0f, 4.0f });
+
+  positions.push_back({ 12.0f, 5.0f });
+  positions.push_back({ 12.0f, 6.0f });
+  positions.push_back({ 12.0f, 7.0f });
+  positions.push_back({ 13.0f, 8.0f });
+  positions.push_back({ 14.0f, 9.0f });
+  positions.push_back({ 15.0f, 9.0f });
+  positions.push_back({ 16.0f, 6.0f });
+  positions.push_back({ 19.0f, 6.0f });
+  positions.push_back({ 18.0f, 6.0f });
+  positions.push_back({ 18.0f, 7.0f });
+  positions.push_back({ 17.0f, 8.0f });
+  positions.push_back({ 13.0f, 4.0f });
+  positions.push_back({ 14.0f, 3.0f });
+  positions.push_back({ 15.0f, 3.0f });
+  positions.push_back({ 17.0f, 4.0f });
+  positions.push_back({ 18.0f, 5.0f });
+
+  positions.push_back({ 22.0f, 3.0f });
+  positions.push_back({ 23.0f, 3.0f });
+  positions.push_back({ 22.0f, 4.0f });
+  positions.push_back({ 23.0f, 4.0f });
+  positions.push_back({ 22.0f, 5.0f });
+  positions.push_back({ 23.0f, 5.0f });
+  positions.push_back({ 24.0f, 2.0f });
+  positions.push_back({ 24.0f, 6.0f });
+  positions.push_back({ 26.0f, 2.0f });
+  positions.push_back({ 26.0f, 1.0f });
+  positions.push_back({ 26.0f, 6.0f });
+  positions.push_back({ 26.0f, 7.0f });*/
 
   bool b = RenderInitialImage(physicalDevice, device, graphicsQueue, positions.data(), uint32_t(positions.size()), image1, hostBuffer, deviceBuffer, vertexSize, swapchain);
   if (!b)
@@ -633,7 +682,7 @@ int main(int argc, char** argv)
   GETOUT(0)
 }
 
-bool RenderInitialImage(const PhysicalDevice& physicalDevice, VkDevice device, VkQueue graphicsQueue, Position* positions, uint32_t positionCount, const Image2D& image, const Buffer& quadHostBuffer, const Buffer& quadDeviceBuffer, VkDeviceSize indexOffset, const Swapchain& swapchain)
+bool RenderInitialImage(const PhysicalDevice& physicalDevice, VkDevice device, VkQueue graphicsQueue, uint32_t* positions, uint32_t positionCount, const Image2D& image, const Buffer& quadHostBuffer, const Buffer& quadDeviceBuffer, VkDeviceSize indexOffset, const Swapchain& swapchain)
 {
   // define all needed handles, so it's easier to clean them up afterwards
   // the order is the order of allocation
@@ -668,7 +717,7 @@ bool RenderInitialImage(const PhysicalDevice& physicalDevice, VkDevice device, V
     return false;
   }
 
-  VkDeviceSize initSize = 4 + sizeof(Position) * positionCount;
+  VkDeviceSize initSize = 8 + sizeof(uint32_t) * WIDTH * HEIGHT;
   auto initBufferCreation = CreateBuffer(physicalDevice, device, initSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   CHECK_RESULT_BOOL(initBufferCreation);
   Buffer initBuffer = std::get<Buffer>(initBufferCreation);
@@ -680,9 +729,15 @@ bool RenderInitialImage(const PhysicalDevice& physicalDevice, VkDevice device, V
   memcpy(data, &positionCount, 4);
   vkUnmapMemory(device, initBuffer.memory);
 
+  uint32_t width = WIDTH;
+  vkMapMemory(device, initBuffer.memory, 4, 4, 0, &data);
+  memcpy(data, &width, 4);
+  vkUnmapMemory(device, initBuffer.memory);
+
   // copy position data
-  vkMapMemory(device, initBuffer.memory, 4, sizeof(Position) * positionCount, 0, &data);
-  memcpy(data, positions, sizeof(Position) * positionCount);
+  VkDeviceSize positionSize = initSize - 8;
+  vkMapMemory(device, initBuffer.memory, 8, positionSize, 0, &data);
+  memcpy(data, positions, positionSize);
   vkUnmapMemory(device, initBuffer.memory);
 
   // update descriptors
