@@ -535,17 +535,60 @@ int main(int argc, char** argv)
 
   auto start = std::chrono::system_clock::now();
 
+  struct Control
+  {
+    int32_t fpsOffset = 0;
+    bool paused = false;
+  } control;
+  
+
+  glfwSetWindowUserPointer(window, &control);
+  auto onKeyPressed = [](GLFWwindow* window, int key, int scancode, int action, int mods) -> void
+  {
+    Control* ctrl = (Control*)glfwGetWindowUserPointer(window);
+
+    if (key == GLFW_KEY_P && action == GLFW_PRESS)
+    {
+      ctrl->paused = !ctrl->paused;
+    }
+
+    if (key == GLFW_KEY_KP_ADD)
+    {
+      ctrl->fpsOffset += 1;
+    }
+
+    if (key == GLFW_KEY_KP_SUBTRACT)
+    {
+      ctrl->fpsOffset -= 1;
+    }
+  };
+  glfwSetKeyCallback(window, onKeyPressed);
+
   while (!glfwWindowShouldClose(window))
   {
     glfwPollEvents();
 
+    if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS)
+    {
+      bool b = RenderInitialImage(physicalDevice, device, graphicsQueue, positions.data(), uint32_t(positions.size()), *images[1], hostBuffer, deviceBuffer, vertexSize, swapchain);
+      if (!b)
+      {
+        std::cout << "could not render initial image" << std::endl;
+        break;
+      }
+    }
+    
+    if (control.paused) continue;
+
     auto current = std::chrono::system_clock::now();
     auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(current - start);
-    if (diff.count() <= (1000 / FPS))
+    if (diff.count() <= (1000 / std::max(int32_t(FPS + control.fpsOffset), 1)))
     {
       continue;
     }
-    start = current;
+    start = std::chrono::system_clock::now();
+
+    
 
     vkResetCommandBuffer(command, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
 
@@ -639,8 +682,6 @@ int main(int argc, char** argv)
 
     vkWaitForFences(device, 1, &fence, VK_TRUE, std::numeric_limits<uint64_t>::max());
     vkResetFences(device, 1, &fence);
-
-
 
     vkDestroyFramebuffer(device, framebuffer, nullptr);
   }
