@@ -1123,7 +1123,7 @@ void FreeImage(VkDevice device, const Image2D& image)
   vkDestroyImage(device, image.image, nullptr);
 }
 
-VulkanCreation<VkSampler> CreateSampler(VkDevice device, VkFilter filter, VkSamplerAddressMode mode, uint32_t anisotropyLevel, VkBool32 unnormalizedCoords)
+VulkanCreation<VkSampler> CreateSampler(VkDevice device, VkFilter filter, VkSamplerAddressMode mode, float anisotropyLevel, VkBool32 unnormalizedCoords)
 {
   VkSamplerCreateInfo samplerInfo = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
   samplerInfo.pNext = nullptr;

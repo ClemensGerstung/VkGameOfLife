@@ -217,7 +217,7 @@ int main(int argc, char** argv)
 
   Image2D image1, image2;
 
-  VkImageUsageFlags imgUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+  VkImageUsageFlags imgUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
   auto imageCreation = CreateImage2D(physicalDevice, device, VK_FORMAT_R8G8B8A8_UNORM, WIDTH, HEIGHT, imgUsage, VK_IMAGE_LAYOUT_UNDEFINED);
   CHECK_RESULT(imageCreation, "could not create image1");
   image1 = std::get<Image2D>(imageCreation);
@@ -233,10 +233,10 @@ int main(int argc, char** argv)
         { {  1.0f,  1.0f, 0.0f } },
         { { -1.0f,  1.0f, 0.0f } },
   };
-  std::vector<uint32_t> indices = { 0, 1, 2, 2, 3, 0 };
+  std::vector<uint16_t> indices = { 0, 1, 2, 2, 3, 0 };
 
   const VkDeviceSize vertexSize = vertices.size() * sizeof(Vertex);
-  const VkDeviceSize indexSize = indices.size() * sizeof(uint32_t);
+  const VkDeviceSize indexSize = indices.size() * sizeof(uint16_t);
   const VkDeviceSize bufferSize = vertexSize + indexSize;
 
   auto hostBufferCreation = CreateBuffer(physicalDevice, device, bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
@@ -272,7 +272,7 @@ int main(int argc, char** argv)
   {
     uint32_t index = dieWidth() + dieHeight() * WIDTH;
 
-    positions[index] = 1;
+    positions[index] = 0xFFFFFFFF;
   }
 
   // Pulsar
@@ -581,7 +581,7 @@ int main(int argc, char** argv)
 
     VkDeviceSize offsets[1] = { 0 };
     vkCmdBindVertexBuffers(command, 0, 1, &deviceBuffer.buffer, offsets);
-    vkCmdBindIndexBuffer(command, deviceBuffer.buffer, vertexSize, VK_INDEX_TYPE_UINT32);
+    vkCmdBindIndexBuffer(command, deviceBuffer.buffer, vertexSize, VK_INDEX_TYPE_UINT16);
 
     vkCmdDrawIndexed(command, 6, 1, 0, 0, 0);
 
@@ -670,95 +670,30 @@ bool RenderInitialImage(const PhysicalDevice& physicalDevice, VkDevice device, V
   // define all needed handles, so it's easier to clean them up afterwards
   // the order is the order of allocation
   // so deallocate/free/destroy in reverse order
-  VkDescriptorSetLayout descriptorSetLayout;
-  VkDescriptorPool descriptorPool;
-  VkDescriptorSet descriptorSet;
-  VkPipelineLayout pipelineLayout;
-  VkRenderPass renderPass;
-  VkPipeline pipeline;
-  VkFramebuffer framebuffer;
   VkCommandPool commandPool;
   VkCommandBuffer cmdBuffer;
   VkFence fence;
 
-  // create descriptor stuff for shader binding
-  VkDescriptorSetLayoutBinding initBufferBinding = CreateDescriptorSetLayoutBinding(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT);
-
-  auto descriptorSetLayoutCreation = CreateDescriptorSetLayout(device, { initBufferBinding });
-  CHECK_RESULT_BOOL(descriptorSetLayoutCreation);
-  descriptorSetLayout = std::get<VkDescriptorSetLayout>(descriptorSetLayoutCreation);
-
-  VkDescriptorPoolSize size = CreateDescriptorPoolSize(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-
-  auto descriptorPoolCreation = CreateDescriptorPool(device, 1, { size });
-  CHECK_RESULT_BOOL(descriptorPoolCreation);
-  descriptorPool = std::get<VkDescriptorPool>(descriptorPoolCreation);
-
-  auto result = AllocateDescriptorSets(device, descriptorPool, 1, &descriptorSetLayout, &descriptorSet);
-  if (result != VK_SUCCESS)
-  {
-    return false;
-  }
-
-  VkDeviceSize initSize = 8 + sizeof(uint32_t) * WIDTH * HEIGHT;
-  auto initBufferCreation = CreateBuffer(physicalDevice, device, initSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  VkDeviceSize initSize = sizeof(uint32_t) * WIDTH * HEIGHT;
+  auto initBufferCreation = CreateBuffer(physicalDevice, device, initSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   CHECK_RESULT_BOOL(initBufferCreation);
   Buffer initBuffer = std::get<Buffer>(initBufferCreation);
 
   void* data;
 
-  // copy count
-  vkMapMemory(device, initBuffer.memory, 0, 4, 0, &data);
-  memcpy(data, &positionCount, 4);
-  vkUnmapMemory(device, initBuffer.memory);
-
-  uint32_t width = WIDTH;
-  vkMapMemory(device, initBuffer.memory, 4, 4, 0, &data);
-  memcpy(data, &width, 4);
-  vkUnmapMemory(device, initBuffer.memory);
-
   // copy position data
-  VkDeviceSize positionSize = initSize - 8;
-  vkMapMemory(device, initBuffer.memory, 8, positionSize, 0, &data);
+  VkDeviceSize positionSize = initSize;
+  vkMapMemory(device, initBuffer.memory, 0, positionSize, 0, &data);
   memcpy(data, positions, positionSize);
   vkUnmapMemory(device, initBuffer.memory);
 
-  // update descriptors
-  VkDescriptorBufferInfo bufferInfo = CreateDescriptorBufferInfo(initBuffer.buffer, 0, initSize);
-  std::vector<VkDescriptorBufferInfo> bufferInfos = { bufferInfo };
-  VkWriteDescriptorSet descriptorWrite = CreateWriteDescriptorSet(descriptorSet, 0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, bufferInfos, {});
-  vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
-
-  // pipeline layout
-  auto initPipelineLayoutCreation = CreatePipelineLayout(device, { descriptorSetLayout }, {});
-  CHECK_RESULT_BOOL(initPipelineLayoutCreation);
-  pipelineLayout = std::get<VkPipelineLayout>(initPipelineLayoutCreation);
-
-  // create renderpass
-  auto attachment = CreateAttachementDescription(image.format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-  std::vector<VkAttachmentReference> references = { { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL } };
-  auto subpass = CreateSubpass(VK_PIPELINE_BIND_POINT_GRAPHICS, references, nullptr);
-  auto dependencies = CreateDefaultSubpassDependencies(VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
-  auto renderPassCreation = CreateRenderPass(device, { attachment }, { subpass }, dependencies);
-  CHECK_RESULT_BOOL(renderPassCreation);
-  renderPass = std::get<VkRenderPass>(renderPassCreation);
-
-  // create pipeline
-  auto initPipelineCreation = CreatePipeline(device, pipelineLayout, { WIDTH, HEIGHT }, renderPass, "init.vert.spv", "init.frag.spv");
-  CHECK_RESULT_BOOL(initPipelineCreation);
-  pipeline = std::get<VkPipeline>(initPipelineCreation);
-
-  // create framebuffer
-  auto framebufferCreation = CreateFramebuffer(device, renderPass, WIDTH, HEIGHT, { image.view });
-  CHECK_RESULT_BOOL(framebufferCreation);
-  framebuffer = std::get<VkFramebuffer>(framebufferCreation);
 
   // create command buffer
   auto commandPoolCreation = CreateCommandPool(device, physicalDevice.graphicsQueueIndex);
   CHECK_RESULT_BOOL(commandPoolCreation);
   commandPool = std::get<VkCommandPool>(commandPoolCreation);
 
-  result = AllocateCommandBuffer(device, commandPool, 1, &cmdBuffer);
+  auto result = AllocateCommandBuffer(device, commandPool, 1, &cmdBuffer);
   if (result != VK_SUCCESS)
   {
     return false;
@@ -779,18 +714,22 @@ bool RenderInitialImage(const PhysicalDevice& physicalDevice, VkDevice device, V
 
   vkCmdCopyBuffer(cmdBuffer, quadHostBuffer.buffer, quadDeviceBuffer.buffer, 1, &bufferRegion);
 
-  BeginRenderPass(cmdBuffer, renderPass, framebuffer, { WIDTH, HEIGHT }, { { 0.12f, 0.12f, 0.12f, 1.0f } });
+  TransitionImageLayout(cmdBuffer, image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
-  vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-  vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+  VkBufferImageCopy bufferImageRegion = {};
+  bufferImageRegion.bufferOffset = 0;
+  bufferImageRegion.bufferRowLength = 0;
+  bufferImageRegion.bufferImageHeight = 0;
+  bufferImageRegion.imageOffset = { 0, 0, 0 };
+  bufferImageRegion.imageExtent = { WIDTH, HEIGHT, 1 };
+  bufferImageRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  bufferImageRegion.imageSubresource.mipLevel = 0;
+  bufferImageRegion.imageSubresource.baseArrayLayer = 0;
+  bufferImageRegion.imageSubresource.layerCount = 1;
 
-  VkDeviceSize offsets[1] = { 0 };
-  vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &quadDeviceBuffer.buffer, offsets);
-  vkCmdBindIndexBuffer(cmdBuffer, quadDeviceBuffer.buffer, indexOffset, VK_INDEX_TYPE_UINT32);
+  vkCmdCopyBufferToImage(cmdBuffer, initBuffer.buffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &bufferImageRegion);
 
-  vkCmdDrawIndexed(cmdBuffer, 6, 1, 0, 0, 0);
-
-  vkCmdEndRenderPass(cmdBuffer);
+  TransitionImageLayout(cmdBuffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, 0, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
 
   for (uint32_t i = 0; i < swapchain.images.size(); i++)
   {
@@ -854,13 +793,6 @@ bool RenderInitialImage(const PhysicalDevice& physicalDevice, VkDevice device, V
   vkDestroyFence(device, fence, nullptr);
   vkFreeCommandBuffers(device, commandPool, 1, &cmdBuffer);
   vkDestroyCommandPool(device, commandPool, nullptr);
-  vkDestroyFramebuffer(device, framebuffer, nullptr);
-  vkDestroyPipeline(device, pipeline, nullptr);
-  vkDestroyRenderPass(device, renderPass, nullptr);
-  vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
   FreeBuffer(device, initBuffer);
-  //vkFreeDescriptorSets(device, descriptorPool, 1, &descriptorSet);
-  vkDestroyDescriptorPool(device, descriptorPool, nullptr);
-  vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
   return true;
 }
