@@ -35,7 +35,7 @@ namespace po = boost::program_options;
 
 constexpr uint32_t WIDTH = 1920;
 constexpr uint32_t HEIGHT = 1080;
-constexpr uint32_t FPS = 100;
+constexpr int32_t FPS = 100;
 
 #define CHECK_RESULT(result, errormessage) if (std::holds_alternative<VkResult>(result)) \
                                            { \
@@ -555,12 +555,21 @@ int main(int argc, char** argv)
     if (key == GLFW_KEY_KP_ADD)
     {
       ctrl->fpsOffset += 1;
+      if (ctrl->fpsOffset + FPS == 0 || ctrl->fpsOffset == FPS)
+      {
+        ctrl->fpsOffset += 1;
+      }
     }
 
     if (key == GLFW_KEY_KP_SUBTRACT)
     {
       ctrl->fpsOffset -= 1;
+      if (ctrl->fpsOffset + FPS == 0 || ctrl->fpsOffset == FPS)
+      {
+        ctrl->fpsOffset -= 1;
+      }
     }
+    std::cout << ctrl->fpsOffset << std::endl;
   };
   glfwSetKeyCallback(window, onKeyPressed);
 
@@ -582,13 +591,11 @@ int main(int argc, char** argv)
 
     auto current = std::chrono::system_clock::now();
     auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(current - start);
-    if (diff.count() <= (1000 / std::max(int32_t(FPS + control.fpsOffset), 1)))
+    if (diff.count() <= (1000 / (FPS + control.fpsOffset)))
     {
       continue;
     }
     start = std::chrono::system_clock::now();
-
-    
 
     vkResetCommandBuffer(command, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
 
