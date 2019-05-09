@@ -1122,3 +1122,33 @@ void FreeImage(VkDevice device, const Image2D& image)
   vkFreeMemory(device, image.memory, nullptr);
   vkDestroyImage(device, image.image, nullptr);
 }
+
+VulkanCreation<VkSampler> CreateSampler(VkDevice device, VkFilter filter, VkSamplerAddressMode mode, uint32_t anisotropyLevel, VkBool32 unnormalizedCoords)
+{
+  VkSamplerCreateInfo samplerInfo = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+  samplerInfo.pNext = nullptr;
+  samplerInfo.flags = 0;
+  samplerInfo.magFilter = filter;
+  samplerInfo.minFilter = filter;
+  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+  samplerInfo.addressModeU = mode;
+  samplerInfo.addressModeV = mode;
+  samplerInfo.addressModeW = mode;
+  samplerInfo.anisotropyEnable = anisotropyLevel > 1 ? VK_TRUE : VK_FALSE;
+  samplerInfo.maxAnisotropy = anisotropyLevel;
+  samplerInfo.compareEnable = VK_FALSE;
+  samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+  samplerInfo.minLod = 0.0f;
+  samplerInfo.maxLod = 0.0f;
+  samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;;
+  samplerInfo.unnormalizedCoordinates = unnormalizedCoords;
+
+  VkSampler sampler;
+  auto result = vkCreateSampler(device, &samplerInfo, nullptr, &sampler);
+  if (result != VK_SUCCESS)
+  {
+    return result;
+  }
+
+  return sampler;
+}

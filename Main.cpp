@@ -433,26 +433,9 @@ int main(int argc, char** argv)
     GETOUT(1);
   }
 
-  VkSamplerCreateInfo samplerInfo = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
-  samplerInfo.pNext = nullptr;
-  samplerInfo.flags = 0;
-  samplerInfo.magFilter = VK_FILTER_NEAREST;
-  samplerInfo.minFilter = VK_FILTER_NEAREST;
-  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-  samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-  samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-  samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-  samplerInfo.anisotropyEnable = VK_FALSE;
-  samplerInfo.maxAnisotropy = 1;
-  samplerInfo.compareEnable = VK_FALSE;
-  samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-  samplerInfo.minLod = 0.0f;
-  samplerInfo.maxLod = 0.0f;
-  samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;;
-  samplerInfo.unnormalizedCoordinates = VK_TRUE;
-
-  VkSampler sampler;
-  result = vkCreateSampler(device, &samplerInfo, nullptr, &sampler);
+  auto samplerCreation = CreateSampler(device, VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, 1, VK_TRUE);
+  CHECK_RESULT(samplerCreation, "could not create sampler");
+  VkSampler sampler = std::get<VkSampler>(samplerCreation);
 
   VkDescriptorSetLayoutBinding binding = CreateDescriptorSetLayoutBinding(0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
   auto descriptorSetLayoutCreation = CreateDescriptorSetLayout(device, { binding });

@@ -59,3 +59,5 @@ VulkanCreation<VkFence> CreateFence(VkDevice device);
 
 void FreeBuffer(VkDevice device, const Buffer& buffer);
 void FreeImage(VkDevice device, const Image2D& image);
+
+VulkanCreation<VkSampler> CreateSampler(VkDevice device, VkFilter filter, VkSamplerAddressMode mode, uint32_t anisotropyLevel, VkBool32 unnormalizedCoords);
