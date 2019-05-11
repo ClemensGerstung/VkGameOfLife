@@ -5,7 +5,7 @@
 #include <vulkan/vulkan.h>
 
 struct Position {
-  float x, y;
+  uint32_t x, y;
 };
 
 struct Settings

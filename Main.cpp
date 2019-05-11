@@ -72,7 +72,7 @@ void validate(boost::any& v, const std::vector<std::string>& values, std::vector
     boost::smatch match;
     if (boost::regex_match(value, match, r))
     {
-      positions.push_back({ boost::lexical_cast<float>(match[1]), boost::lexical_cast<float>(match[2]) });
+      positions.push_back({ boost::lexical_cast<uint32_t>(match[1]), boost::lexical_cast<uint32_t>(match[2]) });
     }
   }
 
@@ -121,12 +121,10 @@ int main(int argc, char** argv)
 
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
   glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-  auto window = glfwCreateWindow(WIDTH, HEIGHT, "Game of Life", nullptr, nullptr);
+  auto window = glfwCreateWindow(settings.windowWidth, settings.windowHeight, "Game of Life", nullptr, nullptr);
   auto mode = glfwGetVideoMode(glfwGetPrimaryMonitor());
-  int width, height;
-  glfwGetWindowSize(window, &width, &height);
 
-  glfwSetWindowPos(window, (mode->width - width) / 2, (mode->height - height) / 2);
+  glfwSetWindowPos(window, (mode->width - settings.windowWidth) / 2, (mode->height - settings.windowHeight) / 2);
 
   auto onScroll = [](GLFWwindow* window, double xoffset, double yoffset)
   {
@@ -152,8 +150,6 @@ int main(int argc, char** argv)
     GETOUT(1);
   }
 
-
-
   VkPhysicalDeviceFeatures features = {};
   features.fragmentStoresAndAtomics = VK_TRUE;
   auto deviceCreation = CreateLogicalDevice(physicalDevice, &features);
@@ -165,7 +161,7 @@ int main(int argc, char** argv)
   vkGetDeviceQueue(device, physicalDevice.graphicsQueueIndex, 0, &graphicsQueue);
   vkGetDeviceQueue(device, physicalDevice.presentationQueueIndex, 0, &presentationQueue);
 
-  auto swapchainCreation = CreateSwapchain(physicalDevice, surface, device, { WIDTH, HEIGHT });
+  auto swapchainCreation = CreateSwapchain(physicalDevice, surface, device, { settings.windowWidth, settings.windowHeight });
   CHECK_RESULT(layers, "could not create swapchain");
   Swapchain swapchain = std::get<Swapchain>(swapchainCreation);
 
@@ -180,20 +176,39 @@ int main(int argc, char** argv)
   Image2D image1, image2;
 
   VkImageUsageFlags imgUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-  auto imageCreation = CreateImage2D(physicalDevice, device, VK_FORMAT_R8G8B8A8_UNORM, WIDTH, HEIGHT, imgUsage, VK_IMAGE_LAYOUT_UNDEFINED);
+  auto imageCreation = CreateImage2D(physicalDevice, device, VK_FORMAT_R8G8B8A8_UNORM, settings.imageWidth, settings.imageHeight, imgUsage, VK_IMAGE_LAYOUT_UNDEFINED);
   CHECK_RESULT(imageCreation, "could not create image1");
   image1 = std::get<Image2D>(imageCreation);
 
-  imageCreation = CreateImage2D(physicalDevice, device, VK_FORMAT_R8G8B8A8_UNORM, WIDTH, HEIGHT, imgUsage, VK_IMAGE_LAYOUT_UNDEFINED);
+  imageCreation = CreateImage2D(physicalDevice, device, VK_FORMAT_R8G8B8A8_UNORM, settings.imageWidth, settings.imageHeight, imgUsage, VK_IMAGE_LAYOUT_UNDEFINED);
   CHECK_RESULT(imageCreation, "could not create image2");
   image2 = std::get<Image2D>(imageCreation);
 
+  float imageOffsetX = 0.0f, imageOffsetY = 0.0f;
+
+  if (settings.imageWidth < settings.windowWidth)
+  {
+    imageOffsetX = 1.0f - (float(settings.windowWidth - settings.imageWidth) / float(settings.windowWidth));
+  }
+
+  if (settings.imageHeight < settings.windowHeight)
+  {
+    imageOffsetY = 1.0f - (float(settings.windowHeight - settings.imageHeight) / float(settings.windowHeight));
+  }
+
   std::vector<Vertex> vertices =
   {
-        { { -1.0f, -1.0f, 0.0f } },
-        { {  1.0f, -1.0f, 0.0f } },
-        { {  1.0f,  1.0f, 0.0f } },
-        { { -1.0f,  1.0f, 0.0f } },
+    // fullscreen quad
+    { { -1.0f, -1.0f, 0.0f } },
+    { {  1.0f, -1.0f, 0.0f } },
+    { {  1.0f,  1.0f, 0.0f } },
+    { { -1.0f,  1.0f, 0.0f } },
+
+    //image rendering quad
+    { { -1.0f + imageOffsetX, -1.0f + imageOffsetY, 0.0f } },
+    { {  1.0f - imageOffsetX, -1.0f + imageOffsetY, 0.0f } },
+    { {  1.0f - imageOffsetX,  1.0f - imageOffsetY, 0.0f } },
+    { { -1.0f + imageOffsetX,  1.0f - imageOffsetY, 0.0f } },
   };
   std::vector<uint16_t> indices = { 0, 1, 2, 2, 3, 0 };
 
@@ -218,85 +233,14 @@ int main(int argc, char** argv)
   memcpy(data, indices.data(), indexSize);
   vkUnmapMemory(device, hostBuffer.memory);
 
-  std::vector<uint32_t> positions(WIDTH * HEIGHT);
+  std::vector<uint32_t> positions(settings.imageWidth * settings.imageHeight);
 
-  auto duration = std::chrono::system_clock::now().time_since_epoch();
-  auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-
-  boost::uniform_int<> distWidth(0, WIDTH - 1);
-  boost::uniform_int<> distHeight(0, HEIGHT - 1);
-  boost::mt19937 gen;
-  gen.seed(uint32_t(millis));
-  boost::variate_generator<boost::mt19937&, boost::uniform_int<> > dieWidth(gen, distWidth);
-  boost::variate_generator<boost::mt19937&, boost::uniform_int<> > dieHeight(gen, distHeight);
-
-  for (size_t i = 0; i < 500000; i++)
+  for (auto& pos : settings.positions)
   {
-    uint32_t index = dieWidth() + dieHeight() * WIDTH;
+    uint32_t index = pos.x + pos.y * settings.imageWidth;
 
     positions[index] = 0xFFFFFFFF;
   }
-
-  // Pulsar
-  /*positions.push_back({ 5.0f, 3.0f });
-  positions.push_back({ 6.0f, 3.0f });
-  positions.push_back({ 7.0f, 3.0f });
-  positions.push_back({ 3.0f, 5.0f });
-  positions.push_back({ 3.0f, 6.0f });
-  positions.push_back({ 3.0f, 7.0f });
-  positions.push_back({ 5.0f, 8.0f });
-  positions.push_back({ 6.0f, 8.0f });
-  positions.push_back({ 7.0f, 8.0f });
-  positions.push_back({ 8.0f, 5.0f });
-  positions.push_back({ 8.0f, 6.0f });
-  positions.push_back({ 8.0f, 7.0f });
-
-  positions.push_back({ 10.0f, 5.0f });
-  positions.push_back({ 10.0f, 6.0f });
-  positions.push_back({ 10.0f, 7.0f });
-  positions.push_back({ 11.0f, 8.0f });
-  positions.push_back({ 12.0f, 8.0f });
-  positions.push_back({ 13.0f, 8.0f });
-  positions.push_back({ 15.0f, 5.0f });
-  positions.push_back({ 15.0f, 6.0f });
-  positions.push_back({ 15.0f, 7.0f });
-  positions.push_back({ 11.0f, 3.0f });
-  positions.push_back({ 12.0f, 3.0f });
-  positions.push_back({ 13.0f, 3.0f });
-
-  positions.push_back({ 11.0f, 10.0f });
-  positions.push_back({ 12.0f, 10.0f });
-  positions.push_back({ 13.0f, 10.0f });
-  positions.push_back({ 10.0f, 11.0f });
-  positions.push_back({ 10.0f, 12.0f });
-  positions.push_back({ 10.0f, 13.0f });
-  positions.push_back({ 11.0f, 15.0f });
-  positions.push_back({ 12.0f, 15.0f });
-  positions.push_back({ 13.0f, 15.0f });
-  positions.push_back({ 15.0f, 11.0f });
-  positions.push_back({ 15.0f, 12.0f });
-  positions.push_back({ 15.0f, 13.0f });
-
-  positions.push_back({ 5.0f, 15.0f });
-  positions.push_back({ 6.0f, 15.0f });
-  positions.push_back({ 7.0f, 15.0f });
-  positions.push_back({ 3.0f, 11.0f });
-  positions.push_back({ 3.0f, 12.0f });
-  positions.push_back({ 3.0f, 13.0f });
-  positions.push_back({ 5.0f, 10.0f });
-  positions.push_back({ 6.0f, 10.0f });
-  positions.push_back({ 7.0f, 10.0f });
-  positions.push_back({ 8.0f, 11.0f });
-  positions.push_back({ 8.0f, 12.0f });
-  positions.push_back({ 8.0f, 13.0f });*/
-
-  // Toad
-  //positions.push_back({ 2.0f, 4.0f });
-  //positions.push_back({ 3.0f, 4.0f });
-  //positions.push_back({ 4.0f, 4.0f });
-  //positions.push_back({ 3.0f, 3.0f });
-  //positions.push_back({ 4.0f, 3.0f });
-  //positions.push_back({ 5.0f, 3.0f });
 
   bool b = RenderInitialImage(physicalDevice, device, graphicsQueue, positions.data(), uint32_t(positions.size()), image1, hostBuffer, deviceBuffer, vertexSize, swapchain);
   if (!b)
@@ -734,7 +678,7 @@ bool ReadSettings(int argc, char** argv, Settings* settings)
     ("Lua,l", po::value<std::string>(), "Reads the configuration from the lua file")
     ("Pixels,p", po::value<std::vector<Position>>(&settings->positions)->multitoken()->zero_tokens()->composing(), "positions of pixels which will be set initialilly to kick of \"Game of Life\"");
 
-  std::cout << options << "\n";
+  //std::cout << options << "\n";
 
   po::store(po::command_line_parser(argc, argv).options(options).run(), vm);
 
@@ -817,7 +761,7 @@ bool ReadSettings(int argc, char** argv, Settings* settings)
 
     for (size_t i = 0; i < count; i++)
     {
-      settings->positions[i] = { float(dieWidth()), float(dieHeight()) };
+      settings->positions[i] = { uint32_t(dieWidth()), uint32_t(dieHeight()) };
     }
   }
 
