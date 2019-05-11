@@ -10,6 +10,7 @@
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/uniform_int.hpp>
 #include <boost/random/variate_generator.hpp>
+#include <boost/algorithm/string.hpp>
 
 #include <iostream>
 #include <variant>
@@ -78,54 +79,15 @@ void validate(boost::any& v, const std::vector<std::string>& values, std::vector
   v = positions;
 }
 
-bool operator<(const Position& lhs, const Position& rhs)
-{
-  return lhs.x < rhs.x && lhs.y < rhs.y;
-}
-
-bool operator==(const Position& lhs, const Position& rhs)
-{
-  return lhs.x == rhs.x && lhs.y == rhs.y;
-}
-
-namespace std {
-  template<> 
-  struct hash<Position> {
-    size_t operator()(const Position& pos) const {
-      return (std::hash<float>()(pos.x) ^ (std::hash<float>()(pos.y) << 1));
-    }
-  };
-}
+bool ReadSettings(int argc, char** argv, Settings* settings);
 
 int main(int argc, char** argv)
 {
-  //int wWidth, wHeight;
-  //uint32_t imageWidth, imageHeight;
-  //bool fullscreen;
-  //std::vector<Position> positions;
-
-  //po::variables_map vm;
-  //po::options_description options("Allowed options");
-  //options.add_options()
-  //  ("Help,h", "produce help message")
-  //  ("WindowWidth,w", po::value<int>(&wWidth)->default_value(WIDTH), "sets the window width")
-  //  ("WindowHeight,h", po::value<int>(&wHeight)->default_value(HEIGHT), "sets the window height")
-  //  ("FullScreen,f", po::value<bool>(&fullscreen)->implicit_value(false), "if set, the window will be fullscreen with the given resolution")
-  //  ("ImageWidth,i", po::value<uint32_t>(&imageWidth)->default_value(WIDTH), "sets the image's width (the resolution of \"Game of Life\")")
-  //  ("ImageHeight,j", po::value<uint32_t>(&imageHeight)->default_value(HEIGHT), "sets the image's height (the resolution of \"Game of Life\")")
-  //  ("Pixels,p", po::value<std::vector<Position>>(&positions)->multitoken()->zero_tokens()->composing()->required(), "positions of pixels which will be set initialilly to kick of \"Game of Life\"");
-
-  //std::cout << options << "\n";
-
-  //po::store(po::command_line_parser(argc, argv).options(options).run(), vm);
-
-  //if (vm.count("Help"))
-  //{
-  //  std::cout << options << "\n";
-  //  GETOUT(0);
-  //}
-
-  //po::notify(vm);
+  Settings settings;
+  if (!ReadSettings(argc, argv, &settings))
+  {
+    GETOUT(1);
+  }
 
   glfwSetErrorCallback(error_callback);
   if (glfwInit() != GLFW_TRUE)
@@ -165,7 +127,7 @@ int main(int argc, char** argv)
   glfwGetWindowSize(window, &width, &height);
 
   glfwSetWindowPos(window, (mode->width - width) / 2, (mode->height - height) / 2);
-  
+
   auto onScroll = [](GLFWwindow* window, double xoffset, double yoffset)
   {
     std::cout << "[ " << xoffset << ", " << yoffset << " ]" << std::endl;
@@ -190,7 +152,7 @@ int main(int argc, char** argv)
     GETOUT(1);
   }
 
-  
+
 
   VkPhysicalDeviceFeatures features = {};
   features.fragmentStoresAndAtomics = VK_TRUE;
@@ -335,96 +297,6 @@ int main(int argc, char** argv)
   //positions.push_back({ 3.0f, 3.0f });
   //positions.push_back({ 4.0f, 3.0f });
   //positions.push_back({ 5.0f, 3.0f });
-  
-  /*
-  for (uint16_t i = 0; i < (1920 / 50); i++)
-  {
-    // Gosper glider gun
-    positions.push_back({ 2.0f, 5.0f });
-    positions.push_back({ 2.0f, 6.0f });
-    positions.push_back({ 3.0f, 5.0f });
-    positions.push_back({ 3.0f, 6.0f });
-
-    positions.push_back({ 36.0f, 3.0f });
-    positions.push_back({ 36.0f, 4.0f });
-    positions.push_back({ 37.0f, 3.0f });
-    positions.push_back({ 37.0f, 4.0f });
-
-    positions.push_back({ 12.0f, 5.0f });
-    positions.push_back({ 12.0f, 6.0f });
-    positions.push_back({ 12.0f, 7.0f });
-    positions.push_back({ 13.0f, 8.0f });
-    positions.push_back({ 14.0f, 9.0f });
-    positions.push_back({ 15.0f, 9.0f });
-    positions.push_back({ 16.0f, 6.0f });
-    positions.push_back({ 19.0f, 6.0f });
-    positions.push_back({ 18.0f, 6.0f });
-    positions.push_back({ 18.0f, 7.0f });
-    positions.push_back({ 17.0f, 8.0f });
-    positions.push_back({ 13.0f, 4.0f });
-    positions.push_back({ 14.0f, 3.0f });
-    positions.push_back({ 15.0f, 3.0f });
-    positions.push_back({ 17.0f, 4.0f });
-    positions.push_back({ 18.0f, 5.0f });
-
-    positions.push_back({ 22.0f, 3.0f });
-    positions.push_back({ 23.0f, 3.0f });
-    positions.push_back({ 22.0f, 4.0f });
-    positions.push_back({ 23.0f, 4.0f });
-    positions.push_back({ 22.0f, 5.0f });
-    positions.push_back({ 23.0f, 5.0f });
-    positions.push_back({ 24.0f, 2.0f });
-    positions.push_back({ 24.0f, 6.0f });
-    positions.push_back({ 26.0f, 2.0f });
-    positions.push_back({ 26.0f, 1.0f });
-    positions.push_back({ 26.0f, 6.0f });
-    positions.push_back({ 26.0f, 7.0f });
-
-    for (auto& pos : positions)
-    {
-      pos.x += 50.0f;
-    }
-  }
-
-  positions.push_back({ 2.0f, 5.0f });
-  positions.push_back({ 2.0f, 6.0f });
-  positions.push_back({ 3.0f, 5.0f });
-  positions.push_back({ 3.0f, 6.0f });
-
-  positions.push_back({ 36.0f, 3.0f });
-  positions.push_back({ 36.0f, 4.0f });
-  positions.push_back({ 37.0f, 3.0f });
-  positions.push_back({ 37.0f, 4.0f });
-
-  positions.push_back({ 12.0f, 5.0f });
-  positions.push_back({ 12.0f, 6.0f });
-  positions.push_back({ 12.0f, 7.0f });
-  positions.push_back({ 13.0f, 8.0f });
-  positions.push_back({ 14.0f, 9.0f });
-  positions.push_back({ 15.0f, 9.0f });
-  positions.push_back({ 16.0f, 6.0f });
-  positions.push_back({ 19.0f, 6.0f });
-  positions.push_back({ 18.0f, 6.0f });
-  positions.push_back({ 18.0f, 7.0f });
-  positions.push_back({ 17.0f, 8.0f });
-  positions.push_back({ 13.0f, 4.0f });
-  positions.push_back({ 14.0f, 3.0f });
-  positions.push_back({ 15.0f, 3.0f });
-  positions.push_back({ 17.0f, 4.0f });
-  positions.push_back({ 18.0f, 5.0f });
-
-  positions.push_back({ 22.0f, 3.0f });
-  positions.push_back({ 23.0f, 3.0f });
-  positions.push_back({ 22.0f, 4.0f });
-  positions.push_back({ 23.0f, 4.0f });
-  positions.push_back({ 22.0f, 5.0f });
-  positions.push_back({ 23.0f, 5.0f });
-  positions.push_back({ 24.0f, 2.0f });
-  positions.push_back({ 24.0f, 6.0f });
-  positions.push_back({ 26.0f, 2.0f });
-  positions.push_back({ 26.0f, 1.0f });
-  positions.push_back({ 26.0f, 6.0f });
-  positions.push_back({ 26.0f, 7.0f });*/
 
   bool b = RenderInitialImage(physicalDevice, device, graphicsQueue, positions.data(), uint32_t(positions.size()), image1, hostBuffer, deviceBuffer, vertexSize, swapchain);
   if (!b)
@@ -540,7 +412,7 @@ int main(int argc, char** argv)
     int32_t fpsOffset = 0;
     bool paused = false;
   } control;
-  
+
 
   glfwSetWindowUserPointer(window, &control);
   auto onKeyPressed = [](GLFWwindow* window, int key, int scancode, int action, int mods) -> void
@@ -586,10 +458,11 @@ int main(int argc, char** argv)
         break;
       }
     }
-    
+
     if (control.paused) continue;
 
     auto current = std::chrono::system_clock::now();
+    auto d = current - start;
     auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(current - start);
     if (diff.count() <= (1000 / (FPS + control.fpsOffset)))
     {
@@ -842,5 +715,112 @@ bool RenderInitialImage(const PhysicalDevice& physicalDevice, VkDevice device, V
   vkFreeCommandBuffers(device, commandPool, 1, &cmdBuffer);
   vkDestroyCommandPool(device, commandPool, nullptr);
   FreeBuffer(device, initBuffer);
+  return true;
+}
+
+bool ReadSettings(int argc, char** argv, Settings* settings)
+{
+  po::variables_map vm;
+  po::options_description options("Allowed options");
+  options.add_options()
+    ("Help,h", "produce help message")
+    ("WindowWidth,w", po::value<uint32_t>(&settings->windowWidth)->default_value(WIDTH), "sets the window width")
+    ("WindowHeight,h", po::value<uint32_t>(&settings->windowHeight)->default_value(HEIGHT), "sets the window height")
+    ("FullScreen,f", po::value<bool>(&settings->fullScreen)->implicit_value(false), "if set, the window will be fullscreen with the given resolution")
+    ("ImageWidth,i", po::value<uint32_t>(&settings->imageWidth)->default_value(WIDTH), "sets the image's width (the resolution of \"Game of Life\")")
+    ("ImageHeight,j", po::value<uint32_t>(&settings->imageHeight)->default_value(HEIGHT), "sets the image's height (the resolution of \"Game of Life\")")
+    ("UseFile,u", po::value<std::string>(), "Uses the given file filled with x and y coordinates (separated with ',') as initial pixel positions")
+    ("Random,r", po::value<uint32_t>(), "Creates the given amount of random initial positions")
+    ("Lua,l", po::value<std::string>(), "Reads the configuration from the lua file")
+    ("Pixels,p", po::value<std::vector<Position>>(&settings->positions)->multitoken()->zero_tokens()->composing(), "positions of pixels which will be set initialilly to kick of \"Game of Life\"");
+
+  std::cout << options << "\n";
+
+  po::store(po::command_line_parser(argc, argv).options(options).run(), vm);
+
+  if (vm.count("Help"))
+  {
+    std::cout << options << "\n";
+    return false;
+  }
+
+  try
+  {
+    po::notify(vm);
+  }
+  catch (const boost::program_options::required_option & e)
+  {
+
+    return false;
+  }
+  catch (std::exception& e)
+  {
+    std::cerr << "Error: " << e.what() << "\n";
+    return false;
+  }
+  catch (...)
+  {
+    std::cerr << "Unknown error!" << "\n";
+    return false;
+  }
+
+  if (vm.count("UseFile"))
+  {
+    std::vector<std::string> lines;
+
+    std::string line;
+    std::ifstream f(vm["UseFile"].as<std::string>());
+    if (!f.is_open())
+    {
+      perror("error while opening file");
+      return false;
+    }
+
+    while (std::getline(f, line))
+    {
+      // remove all whitespaces
+      // thx: https://stackoverflow.com/a/83538
+      line.erase(std::remove_if(line.begin(), line.end(), std::isspace), line.end());
+
+      if (line.length() > 0)
+      {
+        lines.push_back(line);
+      }
+    }
+
+    if (f.bad())
+    {
+      perror("error while reading file");
+      return false;
+    }
+
+    boost::any result;
+    validate(result, lines, nullptr, 0);
+
+    settings->positions = boost::any_cast<std::vector<Position>>(result);
+  }
+  else if (vm.count("Random"))
+  {
+    uint32_t count = vm["Random"].as<uint32_t>();
+    settings->positions.resize(count);
+
+    boost::mt19937 gen;
+
+    auto duration = std::chrono::system_clock::now().time_since_epoch();
+    auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+    gen.seed(uint32_t(millis));
+
+    boost::uniform_int<> distWidth(0, WIDTH - 1);
+    boost::uniform_int<> distHeight(0, HEIGHT - 1);
+    boost::variate_generator<boost::mt19937&, boost::uniform_int<> > dieWidth(gen, distWidth);
+    boost::variate_generator<boost::mt19937&, boost::uniform_int<> > dieHeight(gen, distHeight);
+
+    for (size_t i = 0; i < count; i++)
+    {
+      settings->positions[i] = { float(dieWidth()), float(dieHeight()) };
+    }
+  }
+
+
   return true;
 }

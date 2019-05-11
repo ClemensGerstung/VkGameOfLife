@@ -4,6 +4,20 @@
 
 #include <vulkan/vulkan.h>
 
+struct Position {
+  float x, y;
+};
+
+struct Settings
+{
+  uint32_t windowWidth;
+  uint32_t windowHeight;
+  bool fullScreen;
+  uint32_t imageWidth;
+  uint32_t imageHeight;
+  std::vector<Position> positions;
+};
+
 struct PhysicalDevice
 {
   PhysicalDevice(VkPhysicalDevice device) : device(device)
@@ -75,8 +89,4 @@ struct Image2D
 
 struct Vertex {
   float position[3];
-};
-
-struct Position {
-  float x, y;
 };
