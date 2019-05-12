@@ -641,7 +641,7 @@ VulkanCreation<VkPipelineLayout> CreatePipelineLayout(VkDevice device, const std
 VulkanCreation<VkDescriptorSetLayout> CreateDescriptorSetLayout(VkDevice device, const std::vector<VkDescriptorSetLayoutBinding>& bindings)
 {
   VkDescriptorSetLayoutCreateInfo createInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-  createInfo.flags = 0;
+  createInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
   createInfo.pNext = nullptr;
   createInfo.bindingCount = uint32_t(bindings.size());
   createInfo.pBindings = bindings.data();
@@ -757,11 +757,16 @@ VulkanCreation<VkPipeline> CreatePipeline(VkDevice device, VkPipelineLayout layo
   bindingDescription.stride = sizeof(Vertex);
   bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-  std::array<VkVertexInputAttributeDescription, 1> attributeDescriptions = {};
+  std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions = {};
   attributeDescriptions[0].binding = 0;
   attributeDescriptions[0].location = 0;
   attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-  attributeDescriptions[0].offset = 0;
+  attributeDescriptions[0].offset = offsetof(Vertex, position);;
+
+  attributeDescriptions[1].binding = 0;
+  attributeDescriptions[1].location = 1;
+  attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+  attributeDescriptions[1].offset = offsetof(Vertex, uv);
 
   VkPipelineVertexInputStateCreateInfo vertexInputInfo = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
   vertexInputInfo.flags = 0;

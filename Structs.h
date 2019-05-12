@@ -4,6 +4,8 @@
 
 #include <vulkan/vulkan.h>
 
+#include <glm/glm.hpp>
+
 struct Position {
   uint32_t x, y;
 };
@@ -88,5 +90,23 @@ struct Image2D
 };
 
 struct Vertex {
-  float position[3];
+  glm::vec3 position;
+  glm::vec2 uv;
+};
+
+struct Ubo
+{
+  glm::mat4 view;
+  glm::mat4 projection;
+};
+
+struct Camera
+{
+  VkExtent2D extent;
+  float fov;
+  float near;
+  float far;
+
+  glm::vec3 position;
+  glm::vec3 lookAt;
 };

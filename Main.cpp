@@ -2,6 +2,7 @@
 #include <GLFW/glfw3.h>
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <boost/lexical_cast.hpp>
 #include <boost/program_options.hpp>
@@ -54,7 +55,7 @@ constexpr int32_t FPS = 100;
                                     return false; \
                                   }
 
-bool RenderInitialImage(const PhysicalDevice& physicalDevice, VkDevice device, VkQueue graphicsQueue, uint32_t* positions, uint32_t positionCount, const Image2D& image, const Buffer& quadHostBuffer, const Buffer& quadDeviceBuffer, VkDeviceSize indexOffset, const Swapchain& swapchain);
+bool RenderInitialImage(const PhysicalDevice& physicalDevice, VkDevice device, VkQueue graphicsQueue, uint32_t* positions, uint32_t positionCount, const Image2D& image, const Buffer& quadHostBuffer, const Buffer& quadDeviceBuffer, VkDeviceSize indexOffset, const Settings& settings);
 
 void error_callback(int error, const char* message)
 {
@@ -83,6 +84,8 @@ bool ReadSettings(int argc, char** argv, Settings* settings);
 
 int main(int argc, char** argv)
 {
+  PFN_vkCmdPushDescriptorSetKHR vkCmdPushDescriptorSetKHR;
+
   Settings settings;
   if (!ReadSettings(argc, argv, &settings))
   {
@@ -109,6 +112,7 @@ int main(int argc, char** argv)
   CHECK_RESULT(layers, "could not get layers");
 
   std::vector<const char*> required = { ext, ext + count };
+  required.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
   // others?
 
   auto extensions = CheckInstanceExtensions(required);
@@ -140,7 +144,7 @@ int main(int argc, char** argv)
     GETOUT(1)
   }
 
-  auto physicalDeviceSelection = GetSuitablePhysicalDevice(instance, surface, { VK_KHR_SWAPCHAIN_EXTENSION_NAME });
+  auto physicalDeviceSelection = GetSuitablePhysicalDevice(instance, surface, { VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME });
   CHECK_RESULT(physicalDeviceSelection, "could not select physical device");
 
   PhysicalDevice physicalDevice = std::get<PhysicalDevice>(physicalDeviceSelection);
@@ -161,6 +165,27 @@ int main(int argc, char** argv)
   vkGetDeviceQueue(device, physicalDevice.graphicsQueueIndex, 0, &graphicsQueue);
   vkGetDeviceQueue(device, physicalDevice.presentationQueueIndex, 0, &presentationQueue);
 
+  vkCmdPushDescriptorSetKHR = (PFN_vkCmdPushDescriptorSetKHR)vkGetDeviceProcAddr(device, "vkCmdPushDescriptorSetKHR");
+  if (!vkCmdPushDescriptorSetKHR)
+  {
+    std::cout << "could not get function vkCmdPushDescriptorSetKHR" << std::endl;
+    GETOUT(1);
+  }
+
+  PFN_vkGetPhysicalDeviceProperties2KHR vkGetPhysicalDeviceProperties2KHR = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2KHR>(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2KHR"));
+  if (!vkGetPhysicalDeviceProperties2KHR)
+  {
+    std::cout << "could not get function vkCmdPushDescriptorSetKHR" << std::endl;
+    GETOUT(1);
+  }
+
+  VkPhysicalDevicePushDescriptorPropertiesKHR pushDescriptorProps = {};
+  VkPhysicalDeviceProperties2KHR deviceProps2 = {};
+  pushDescriptorProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR;
+  deviceProps2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2_KHR;
+  deviceProps2.pNext = &pushDescriptorProps;
+  vkGetPhysicalDeviceProperties2KHR(physicalDevice, &deviceProps2);
+
   auto swapchainCreation = CreateSwapchain(physicalDevice, surface, device, { settings.windowWidth, settings.windowHeight });
   CHECK_RESULT(layers, "could not create swapchain");
   Swapchain swapchain = std::get<Swapchain>(swapchainCreation);
@@ -173,6 +198,16 @@ int main(int argc, char** argv)
     swapchain.imageViews[i] = std::get<VkImageView>(imageView);
   }
 
+  Ubo ubo = {};
+
+  Camera camera = {};
+  camera.extent = swapchain.extent;
+  camera.far = 10;
+  camera.near = 0;
+  camera.fov = 60;
+  camera.lookAt = { 0,0,0 };
+  camera.position = { 0,0,1 };
+
   Image2D image1, image2;
 
   VkImageUsageFlags imgUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
@@ -183,6 +218,11 @@ int main(int argc, char** argv)
   imageCreation = CreateImage2D(physicalDevice, device, VK_FORMAT_R8G8B8A8_UNORM, settings.imageWidth, settings.imageHeight, imgUsage, VK_IMAGE_LAYOUT_UNDEFINED);
   CHECK_RESULT(imageCreation, "could not create image2");
   image2 = std::get<Image2D>(imageCreation);
+
+
+  auto uboBufferCreation = CreateBuffer(physicalDevice, device, sizeof(Ubo), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  CHECK_RESULT(uboBufferCreation, "could not create ubo buffer");
+  Buffer uboBuffer = std::get<Buffer>(uboBufferCreation);
 
   float imageOffsetX = 0.0f, imageOffsetY = 0.0f;
 
@@ -199,16 +239,16 @@ int main(int argc, char** argv)
   std::vector<Vertex> vertices =
   {
     // fullscreen quad
-    { { -1.0f, -1.0f, 0.0f } },
-    { {  1.0f, -1.0f, 0.0f } },
-    { {  1.0f,  1.0f, 0.0f } },
-    { { -1.0f,  1.0f, 0.0f } },
+    { { -1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f } },
+    { {  1.0f, -1.0f, 0.0f }, { 1.0f, 0.0f } },
+    { {  1.0f,  1.0f, 0.0f }, { 1.0f, 1.0f } },
+    { { -1.0f,  1.0f, 0.0f }, { 0.0f, 1.0f } },
 
     //image rendering quad
-    { { -1.0f + imageOffsetX, -1.0f + imageOffsetY, 0.0f } },
-    { {  1.0f - imageOffsetX, -1.0f + imageOffsetY, 0.0f } },
-    { {  1.0f - imageOffsetX,  1.0f - imageOffsetY, 0.0f } },
-    { { -1.0f + imageOffsetX,  1.0f - imageOffsetY, 0.0f } },
+    { { -1.0f + imageOffsetX, -1.0f + imageOffsetY, 0.0f }, { 0.0f, 0.0f } },
+    { {  1.0f - imageOffsetX, -1.0f + imageOffsetY, 0.0f }, { 1.0f, 0.0f } },
+    { {  1.0f - imageOffsetX,  1.0f - imageOffsetY, 0.0f }, { 1.0f, 1.0f } },
+    { { -1.0f + imageOffsetX,  1.0f - imageOffsetY, 0.0f }, { 0.0f, 1.0f } },
   };
   std::vector<uint16_t> indices = { 0, 1, 2, 2, 3, 0 };
 
@@ -242,7 +282,7 @@ int main(int argc, char** argv)
     positions[index] = 0xFFFFFFFF;
   }
 
-  bool b = RenderInitialImage(physicalDevice, device, graphicsQueue, positions.data(), uint32_t(positions.size()), image1, hostBuffer, deviceBuffer, vertexSize, swapchain);
+  bool b = RenderInitialImage(physicalDevice, device, graphicsQueue, positions.data(), uint32_t(positions.size()), image1, hostBuffer, deviceBuffer, vertexSize, settings);
   if (!b)
   {
     std::cout << "could not render initial image" << std::endl;
@@ -258,22 +298,20 @@ int main(int argc, char** argv)
   CHECK_RESULT(descriptorSetLayoutCreation, "could not create VkDescriptorSetLayout");
   VkDescriptorSetLayout descriptorSetLayout = std::get<VkDescriptorSetLayout>(descriptorSetLayoutCreation);
 
-  VkDescriptorPoolSize size = CreateDescriptorPoolSize(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-
-  auto descriptorPoolCreation = CreateDescriptorPool(device, 1, { size });
-  CHECK_RESULT_BOOL(descriptorPoolCreation);
-  VkDescriptorPool descriptorPool = std::get<VkDescriptorPool>(descriptorPoolCreation);
-
   auto piplineLayoutCreation = CreatePipelineLayout(device, { descriptorSetLayout }, {});
   CHECK_RESULT(piplineLayoutCreation, "could not create VkPipelineLayout");
   VkPipelineLayout pipelineLayout = std::get<VkPipelineLayout>(piplineLayoutCreation);
 
-  VkDescriptorSet descriptorSet;
-  result = AllocateDescriptorSets(device, descriptorPool, 1, &descriptorSetLayout, &descriptorSet);
-  if (result != VK_SUCCESS)
-  {
-    return false;
-  }
+  VkDescriptorSetLayoutBinding uboBinding = CreateDescriptorSetLayoutBinding(0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT);
+  VkDescriptorSetLayoutBinding textureBinding = CreateDescriptorSetLayoutBinding(1, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
+
+  descriptorSetLayoutCreation = CreateDescriptorSetLayout(device, { uboBinding, textureBinding });
+  CHECK_RESULT(descriptorSetLayoutCreation, "could not create VkDescriptorSetLayout");
+  VkDescriptorSetLayout presentDescriptorSetLayout = std::get<VkDescriptorSetLayout>(descriptorSetLayoutCreation);
+
+  piplineLayoutCreation = CreatePipelineLayout(device, { presentDescriptorSetLayout }, {});
+  CHECK_RESULT(piplineLayoutCreation, "could not create VkPipelineLayout");
+  VkPipelineLayout presentPipelineLayout = std::get<VkPipelineLayout>(piplineLayoutCreation);
 
   VkDescriptorImageInfo image1Info = {};
   image1Info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -285,11 +323,16 @@ int main(int argc, char** argv)
   image2Info.imageView = image2.view;
   image2Info.sampler = sampler;
 
+  VkDescriptorBufferInfo uboBufferInfo = {};
+  uboBufferInfo.offset = 0;
+  uboBufferInfo.range = sizeof(Ubo);
+  uboBufferInfo.buffer = uboBuffer.buffer;
+
   Image2D *images[] = { &image2, &image1 };
   VkDescriptorImageInfo imageInfos[2] = { image2Info, image1Info };
 
-  //auto attachment = CreateAttachementDescription(image1.format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-  auto attachment = CreateAttachementDescription(image1.format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+  auto attachment = CreateAttachementDescription(image1.format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  //auto attachment = CreateAttachementDescription(image1.format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
   std::vector<VkAttachmentReference> references = { { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL } };
   auto subpass = CreateSubpass(VK_PIPELINE_BIND_POINT_GRAPHICS, references, nullptr);
   auto dependencies = CreateDefaultSubpassDependencies(VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
@@ -297,18 +340,18 @@ int main(int argc, char** argv)
   CHECK_RESULT(renderPassCreation, "could not create renderPass (background draw)");
   auto renderPassGoL = std::get<VkRenderPass>(renderPassCreation);
 
-  attachment = CreateAttachementDescription(image1.format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+  attachment = CreateAttachementDescription(swapchain.format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
   renderPassCreation = CreateRenderPass(device, { attachment }, { subpass }, dependencies);
   CHECK_RESULT(renderPassCreation, "could not create renderPass (present)");
   auto renderPass = std::get<VkRenderPass>(renderPassCreation);
 
-  auto pipelineCreation = CreatePipeline(device, pipelineLayout, { WIDTH, HEIGHT }, renderPassGoL, "init.vert.spv", "gol.frag.spv");
+  auto pipelineCreation = CreatePipeline(device, pipelineLayout, { settings.imageWidth, settings.imageHeight }, renderPassGoL, "init.vert.spv", "gol.frag.spv");
   CHECK_RESULT(pipelineCreation, "could not create pipeline (background draw)");
   auto pipelineGoL = std::get<VkPipeline>(pipelineCreation);
 
-  //pipelineCreation = CreatePipeline(device, pipelineLayout, { WIDTH, HEIGHT }, renderPass, "present.vert.spv", "present.frag.spv");
-  //CHECK_RESULT(pipelineCreation, "could not create pipeline (present)");
-  //auto pipeline = std::get<VkPipeline>(pipelineCreation);
+  pipelineCreation = CreatePipeline(device, presentPipelineLayout, { settings.windowWidth, settings.windowHeight }, renderPass, "present.vert.spv", "present.frag.spv");
+  CHECK_RESULT(pipelineCreation, "could not create pipeline (present)");
+  auto pipeline = std::get<VkPipeline>(pipelineCreation);
 
   // create command buffer
   auto commandPoolCreation = CreateCommandPool(device, physicalDevice.graphicsQueueIndex);
@@ -349,8 +392,6 @@ int main(int argc, char** argv)
 
   std::vector<VkDescriptorImageInfo> descriptorImageInfos(1);
 
-  auto start = std::chrono::system_clock::now();
-
   struct Control
   {
     int32_t fpsOffset = 0;
@@ -389,13 +430,14 @@ int main(int argc, char** argv)
   };
   glfwSetKeyCallback(window, onKeyPressed);
 
+  auto start = std::chrono::system_clock::now();
   while (!glfwWindowShouldClose(window))
   {
     glfwPollEvents();
 
     if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS)
     {
-      bool b = RenderInitialImage(physicalDevice, device, graphicsQueue, positions.data(), uint32_t(positions.size()), *images[1], hostBuffer, deviceBuffer, vertexSize, swapchain);
+      bool b = RenderInitialImage(physicalDevice, device, graphicsQueue, positions.data(), uint32_t(positions.size()), *images[1], hostBuffer, deviceBuffer, vertexSize, settings);
       if (!b)
       {
         std::cout << "could not render initial image" << std::endl;
@@ -407,12 +449,21 @@ int main(int argc, char** argv)
 
     auto current = std::chrono::system_clock::now();
     auto d = current - start;
-    auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(current - start);
+    auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(d);
     if (diff.count() <= (1000 / (FPS + control.fpsOffset)))
     {
       continue;
     }
     start = std::chrono::system_clock::now();
+
+    // write ubo
+    ubo.view = glm::lookAt(camera.position, camera.lookAt, { 0.0f, 0.0f, 1.0f });
+    ubo.projection = glm::perspective(glm::radians(camera.fov), static_cast<float>(camera.extent.width) / static_cast<float>(camera.extent.height), camera.near, camera.far);
+
+    void* uboData;
+    vkMapMemory(device, uboBuffer.memory, 0, sizeof(Ubo), 0, &uboData);
+    memcpy(uboData, &ubo, sizeof(Ubo));
+    vkUnmapMemory(device, uboBuffer.memory);
 
     vkResetCommandBuffer(command, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
 
@@ -429,22 +480,29 @@ int main(int argc, char** argv)
     images[1] = temp;
 
     descriptorImageInfos[0] = imageInfos[0];
-    auto writeDescriptorSet = CreateWriteDescriptorSet(descriptorSet, 0, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, {}, descriptorImageInfos);
-    vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, nullptr);
+    auto writeDescriptorSet = CreateWriteDescriptorSet(VK_NULL_HANDLE, 0, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, {}, descriptorImageInfos);
 
-    auto framebufferCreation = CreateFramebuffer(device, renderPass, WIDTH, HEIGHT, { images[1]->view });
+    auto framebufferCreation = CreateFramebuffer(device, renderPassGoL, settings.imageWidth, settings.imageHeight, { images[1]->view });
     if (std::holds_alternative<VkResult>(framebufferCreation))
     {
       // bad things happened
       continue;
     }
-    VkFramebuffer framebuffer = std::get<VkFramebuffer>(framebufferCreation);
+    VkFramebuffer backbuffer = std::get<VkFramebuffer>(framebufferCreation);
+
+    framebufferCreation = CreateFramebuffer(device, renderPass, settings.windowWidth, settings.windowHeight, { swapchain.imageViews[imageIndex] });
+    if (std::holds_alternative<VkResult>(framebufferCreation))
+    {
+      // bad things happened
+      continue;
+    }
+    VkFramebuffer frontbuffer = std::get<VkFramebuffer>(framebufferCreation);
 
     BeginCommandBuffer(command, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
-    BeginRenderPass(command, renderPassGoL, framebuffer, { WIDTH, HEIGHT }, { { 0.12f, 0.12f, 0.12f, 1.0f } });
+    BeginRenderPass(command, renderPassGoL, backbuffer, { settings.imageWidth, settings.imageHeight }, { { 0.12f, 0.12f, 0.12f, 1.0f } });
 
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineGoL);
-    vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+    vkCmdPushDescriptorSetKHR(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &writeDescriptorSet);
 
     VkDeviceSize offsets[1] = { 0 };
     vkCmdBindVertexBuffers(command, 0, 1, &deviceBuffer.buffer, offsets);
@@ -454,28 +512,32 @@ int main(int argc, char** argv)
 
     vkCmdEndRenderPass(command);
 
-    VkImage swapchainImage = swapchain.images[imageIndex];
+    std::array<VkWriteDescriptorSet, 2> writeDescriptorSets = {};
+    writeDescriptorSets[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writeDescriptorSets[0].dstSet = 0;
+    writeDescriptorSets[0].dstBinding = 0;
+    writeDescriptorSets[0].descriptorCount = 1;
+    writeDescriptorSets[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writeDescriptorSets[0].pBufferInfo = &uboBufferInfo;
 
-    TransitionImageLayout(command, swapchainImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    writeDescriptorSets[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writeDescriptorSets[1].dstSet = 0;
+    writeDescriptorSets[1].dstBinding = 1;
+    writeDescriptorSets[1].descriptorCount = 1;
+    writeDescriptorSets[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writeDescriptorSets[1].pImageInfo = &imageInfos[1];
 
-    VkImageCopy imageRegion = {};
-    imageRegion.srcOffset = { 0, 0, 0 };
-    imageRegion.dstOffset = { 0, 0, 0 };
-    imageRegion.extent = { WIDTH, HEIGHT, 1 };
-    imageRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    imageRegion.srcSubresource.mipLevel = 0;
-    imageRegion.srcSubresource.baseArrayLayer = 0;
-    imageRegion.srcSubresource.layerCount = 1;
-    imageRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    imageRegion.dstSubresource.mipLevel = 0;
-    imageRegion.dstSubresource.baseArrayLayer = 0;
-    imageRegion.dstSubresource.layerCount = 1;
+    BeginRenderPass(command, renderPass, frontbuffer, { settings.windowWidth, settings.windowHeight }, { { 0.12f, 0.12f, 0.12f, 1.0f } });
+    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    vkCmdPushDescriptorSetKHR(command, VK_PIPELINE_BIND_POINT_GRAPHICS, presentPipelineLayout, 0, 2, writeDescriptorSets.data());
 
-    vkCmdCopyImage(command, images[1]->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &imageRegion);
+    offsets[0] = { sizeof(Vertex) * 4 }; // skip first 4 vertices
+    vkCmdBindVertexBuffers(command, 0, 1, &deviceBuffer.buffer, offsets);
+    vkCmdBindIndexBuffer(command, deviceBuffer.buffer, vertexSize, VK_INDEX_TYPE_UINT16);
 
-    TransitionImageLayout(command, swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ACCESS_TRANSFER_WRITE_BIT, 0, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
+    vkCmdDrawIndexed(command, 6, 1, 0, 0, 0);
 
-    TransitionImageLayout(command, images[1]->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    vkCmdEndRenderPass(command);
 
     vkEndCommandBuffer(command);
 
@@ -507,7 +569,8 @@ int main(int argc, char** argv)
     vkWaitForFences(device, 1, &fence, VK_TRUE, std::numeric_limits<uint64_t>::max());
     vkResetFences(device, 1, &fence);
 
-    vkDestroyFramebuffer(device, framebuffer, nullptr);
+    vkDestroyFramebuffer(device, frontbuffer, nullptr);
+    vkDestroyFramebuffer(device, backbuffer, nullptr);
   }
 
 
@@ -530,7 +593,7 @@ int main(int argc, char** argv)
   GETOUT(0)
 }
 
-bool RenderInitialImage(const PhysicalDevice& physicalDevice, VkDevice device, VkQueue graphicsQueue, uint32_t* positions, uint32_t positionCount, const Image2D& image, const Buffer& quadHostBuffer, const Buffer& quadDeviceBuffer, VkDeviceSize indexOffset, const Swapchain& swapchain)
+bool RenderInitialImage(const PhysicalDevice& physicalDevice, VkDevice device, VkQueue graphicsQueue, uint32_t* positions, uint32_t positionCount, const Image2D& image, const Buffer& quadHostBuffer, const Buffer& quadDeviceBuffer, VkDeviceSize indexOffset, const Settings& settings)
 {
   // define all needed handles, so it's easier to clean them up afterwards
   // the order is the order of allocation
@@ -539,7 +602,7 @@ bool RenderInitialImage(const PhysicalDevice& physicalDevice, VkDevice device, V
   VkCommandBuffer cmdBuffer;
   VkFence fence;
 
-  VkDeviceSize initSize = sizeof(uint32_t) * WIDTH * HEIGHT;
+  VkDeviceSize initSize = sizeof(uint32_t) * positionCount;
   auto initBufferCreation = CreateBuffer(physicalDevice, device, initSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   CHECK_RESULT_BOOL(initBufferCreation);
   Buffer initBuffer = std::get<Buffer>(initBufferCreation);
@@ -586,7 +649,7 @@ bool RenderInitialImage(const PhysicalDevice& physicalDevice, VkDevice device, V
   bufferImageRegion.bufferRowLength = 0;
   bufferImageRegion.bufferImageHeight = 0;
   bufferImageRegion.imageOffset = { 0, 0, 0 };
-  bufferImageRegion.imageExtent = { WIDTH, HEIGHT, 1 };
+  bufferImageRegion.imageExtent = { settings.imageWidth, settings.imageHeight, 1 };
   bufferImageRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
   bufferImageRegion.imageSubresource.mipLevel = 0;
   bufferImageRegion.imageSubresource.baseArrayLayer = 0;
@@ -594,33 +657,7 @@ bool RenderInitialImage(const PhysicalDevice& physicalDevice, VkDevice device, V
 
   vkCmdCopyBufferToImage(cmdBuffer, initBuffer.buffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &bufferImageRegion);
 
-  TransitionImageLayout(cmdBuffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, 0, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
-
-  for (uint32_t i = 0; i < swapchain.images.size(); i++)
-  {
-    VkImage swapchainImage = swapchain.images[i];
-
-    TransitionImageLayout(cmdBuffer, swapchainImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-
-    VkImageCopy imageRegion = {};
-    imageRegion.srcOffset = { 0, 0, 0 };
-    imageRegion.dstOffset = { 0, 0, 0 };
-    imageRegion.extent = { WIDTH, HEIGHT, 1 };
-    imageRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    imageRegion.srcSubresource.mipLevel = 0;
-    imageRegion.srcSubresource.baseArrayLayer = 0;
-    imageRegion.srcSubresource.layerCount = 1;
-    imageRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    imageRegion.dstSubresource.mipLevel = 0;
-    imageRegion.dstSubresource.baseArrayLayer = 0;
-    imageRegion.dstSubresource.layerCount = 1;
-
-    vkCmdCopyImage(cmdBuffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &imageRegion);
-
-    TransitionImageLayout(cmdBuffer, swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ACCESS_TRANSFER_WRITE_BIT, 0, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
-  }
-
-  TransitionImageLayout(cmdBuffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+  TransitionImageLayout(cmdBuffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 
   result = vkEndCommandBuffer(cmdBuffer);
   if (result != VK_SUCCESS)
@@ -754,14 +791,14 @@ bool ReadSettings(int argc, char** argv, Settings* settings)
     auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
     gen.seed(uint32_t(millis));
 
-    boost::uniform_int<> distWidth(0, WIDTH - 1);
-    boost::uniform_int<> distHeight(0, HEIGHT - 1);
-    boost::variate_generator<boost::mt19937&, boost::uniform_int<> > dieWidth(gen, distWidth);
-    boost::variate_generator<boost::mt19937&, boost::uniform_int<> > dieHeight(gen, distHeight);
+    boost::uniform_int<> widthDistribution(0, settings->imageWidth - 1);
+    boost::uniform_int<> heightDistribution(0, settings->imageHeight - 1);
+    boost::variate_generator<boost::mt19937&, boost::uniform_int<> > widthRandom(gen, widthDistribution);
+    boost::variate_generator<boost::mt19937&, boost::uniform_int<> > heightRandom(gen, heightDistribution);
 
     for (size_t i = 0; i < count; i++)
     {
-      settings->positions[i] = { uint32_t(dieWidth()), uint32_t(dieHeight()) };
+      settings->positions[i] = { uint32_t(widthRandom()), uint32_t(heightRandom()) };
     }
   }
 
