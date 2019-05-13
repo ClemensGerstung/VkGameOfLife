@@ -765,7 +765,7 @@ VulkanCreation<VkPipeline> CreatePipeline(VkDevice device, VkPipelineLayout layo
 
   attributeDescriptions[1].binding = 0;
   attributeDescriptions[1].location = 1;
-  attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+  attributeDescriptions[1].format = VK_FORMAT_R32G32_SFLOAT;
   attributeDescriptions[1].offset = offsetof(Vertex, uv);
 
   VkPipelineVertexInputStateCreateInfo vertexInputInfo = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };

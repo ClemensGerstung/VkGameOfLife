@@ -25,7 +25,7 @@ int cell(vec2 offset)
 void main() {
 	vec2 f = gl_FragCoord.xy - vec2(0.5, 0.5);
 	vec4 color = texture(samplerGol, f);
-	//outColor = vec4(0, 0, 0, 0);
+	//outColor = vec4(0, 0, 0, 1);
 
 	int val = cell(vec2(-1, -1)) + cell(vec2(0, -1)) + cell(vec2(1, -1)) + 
 				cell(vec2(-1, 0)) + cell(vec2(1, 0)) + 

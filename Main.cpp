@@ -1,7 +1,9 @@
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
 
+#define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
+#include <glm/gtx/string_cast.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <boost/lexical_cast.hpp>
@@ -81,6 +83,16 @@ void validate(boost::any& v, const std::vector<std::string>& values, std::vector
 }
 
 bool ReadSettings(int argc, char** argv, Settings* settings);
+
+std::ostream& operator<<(std::ostream& out, const glm::vec4& g)
+{
+  return out << "[" << g.x << ", " << g.y << ", " << g.z << ", " << g.w << "]";
+}
+
+std::ostream& operator<<(std::ostream& out, const glm::vec3& g)
+{
+  return out << "[" << g.x << ", " << g.y << ", " << g.z << "]";
+}
 
 int main(int argc, char** argv)
 {
@@ -206,7 +218,7 @@ int main(int argc, char** argv)
   camera.near = 0;
   camera.fov = 60;
   camera.lookAt = { 0,0,0 };
-  camera.position = { 0,0,1 };
+  camera.position = { 0,0,3 };
 
   Image2D image1, image2;
 
@@ -240,15 +252,23 @@ int main(int argc, char** argv)
   {
     // fullscreen quad
     { { -1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f } },
-    { {  1.0f, -1.0f, 0.0f }, { 1.0f, 0.0f } },
-    { {  1.0f,  1.0f, 0.0f }, { 1.0f, 1.0f } },
-    { { -1.0f,  1.0f, 0.0f }, { 0.0f, 1.0f } },
+    { {  1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f } },
+    { {  1.0f,  1.0f, 0.0f }, { 0.0f, 0.0f } },
+    { { -1.0f,  1.0f, 0.0f }, { 0.0f, 0.0f } },
 
     //image rendering quad
-    { { -1.0f + imageOffsetX, -1.0f + imageOffsetY, 0.0f }, { 0.0f, 0.0f } },
-    { {  1.0f - imageOffsetX, -1.0f + imageOffsetY, 0.0f }, { 1.0f, 0.0f } },
-    { {  1.0f - imageOffsetX,  1.0f - imageOffsetY, 0.0f }, { 1.0f, 1.0f } },
-    { { -1.0f + imageOffsetX,  1.0f - imageOffsetY, 0.0f }, { 0.0f, 1.0f } },
+    //{ { -1.0f + imageOffsetX, -1.0f + imageOffsetY, 0.0f }, { 1.0f, 0.0f } },
+    //{ {  1.0f - imageOffsetX, -1.0f + imageOffsetY, 0.0f }, { 0.0f, 0.0f } },
+    //{ {  1.0f - imageOffsetX,  1.0f - imageOffsetY, 0.0f }, { 0.0f, 1.0f } },
+    //{ { -1.0f + imageOffsetX,  1.0f - imageOffsetY, 0.0f }, { 1.0f, 1.0f } },
+    {{-0.5f, -0.5f , 0.0f}, {1.0f, 0.0f}},
+    {{0.5f, -0.5f  , 0.0f}, {0.0f, 0.0f}},
+    {{0.5f, 0.5f   , 0.0f}, {0.0f, 1.0f}},
+    {{-0.5f, 0.5f  , 0.0f}, {1.0f, 1.0f}}
+    //{ { -1.0f + imageOffsetX, -1.0f + imageOffsetY, 0.0f }, { 0.0f, 0.0f } },
+    //{ {  1.0f - imageOffsetX, -1.0f + imageOffsetY, 0.0f }, { 1.0f, 0.0f } },
+    //{ {  1.0f - imageOffsetX,  1.0f - imageOffsetY, 0.0f }, { 1.0f, 1.0f } },
+    //{ { -1.0f + imageOffsetX,  1.0f - imageOffsetY, 0.0f }, { 0.0f, 1.0f } },
   };
   std::vector<uint16_t> indices = { 0, 1, 2, 2, 3, 0 };
 
@@ -289,7 +309,7 @@ int main(int argc, char** argv)
     GETOUT(1);
   }
 
-  auto samplerCreation = CreateSampler(device, VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, 1, VK_TRUE);
+  auto samplerCreation = CreateSampler(device, VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, 1, VK_FALSE);
   CHECK_RESULT(samplerCreation, "could not create sampler");
   VkSampler sampler = std::get<VkSampler>(samplerCreation);
 
@@ -457,13 +477,22 @@ int main(int argc, char** argv)
     start = std::chrono::system_clock::now();
 
     // write ubo
-    ubo.view = glm::lookAt(camera.position, camera.lookAt, { 0.0f, 0.0f, 1.0f });
-    ubo.projection = glm::perspective(glm::radians(camera.fov), static_cast<float>(camera.extent.width) / static_cast<float>(camera.extent.height), camera.near, camera.far);
+    ubo.model = glm::mat4(1);
+    ubo.view = glm::lookAt(glm::vec3(0.0f, 0.0f, -2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    ubo.projection = glm::perspective(glm::radians(45.0f), camera.extent.width / (float)camera.extent.height, 0.1f, 10.0f);
+    ubo.projection[1][1] *= -1;
 
     void* uboData;
     vkMapMemory(device, uboBuffer.memory, 0, sizeof(Ubo), 0, &uboData);
     memcpy(uboData, &ubo, sizeof(Ubo));
     vkUnmapMemory(device, uboBuffer.memory);
+
+    /*for (int i = 4; i < 8; i++)
+    {
+      glm::vec4 res = ubo.projection * ubo.view * glm::vec4{ vertices[i].position.x, vertices[i].position.y, vertices[i].position.z, 1.0f };
+
+      std::cout << vertices[i].position << " => " << res << std::endl;
+    }*/
 
     vkResetCommandBuffer(command, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
 
@@ -499,7 +528,7 @@ int main(int argc, char** argv)
     VkFramebuffer frontbuffer = std::get<VkFramebuffer>(framebufferCreation);
 
     BeginCommandBuffer(command, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
-    BeginRenderPass(command, renderPassGoL, backbuffer, { settings.imageWidth, settings.imageHeight }, { { 0.12f, 0.12f, 0.12f, 1.0f } });
+    BeginRenderPass(command, renderPassGoL, backbuffer, { settings.imageWidth, settings.imageHeight }, { { 0.0f, 0.0f, 0.0f, 0.0f } });
 
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineGoL);
     vkCmdPushDescriptorSetKHR(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &writeDescriptorSet);
