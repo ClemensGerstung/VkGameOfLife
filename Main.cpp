@@ -39,7 +39,7 @@ namespace po = boost::program_options;
 
 constexpr uint32_t WIDTH = 1920;
 constexpr uint32_t HEIGHT = 1080;
-constexpr int32_t FPS = 100;
+constexpr int32_t FPS = 25;
 
 #define CHECK_RESULT(result, errormessage) if (std::holds_alternative<VkResult>(result)) \
                                            { \
@@ -237,6 +237,7 @@ int main(int argc, char** argv)
   Buffer uboBuffer = std::get<Buffer>(uboBufferCreation);
 
   float imageOffsetX = 0.0f, imageOffsetY = 0.0f;
+  float ratio = float(settings.imageWidth) / float(settings.imageHeight);
 
   if (settings.imageWidth < settings.windowWidth)
   {
@@ -257,18 +258,10 @@ int main(int argc, char** argv)
     { { -1.0f,  1.0f, 0.0f }, { 0.0f, 0.0f } },
 
     //image rendering quad
-    //{ { -1.0f + imageOffsetX, -1.0f + imageOffsetY, 0.0f }, { 1.0f, 0.0f } },
-    //{ {  1.0f - imageOffsetX, -1.0f + imageOffsetY, 0.0f }, { 0.0f, 0.0f } },
-    //{ {  1.0f - imageOffsetX,  1.0f - imageOffsetY, 0.0f }, { 0.0f, 1.0f } },
-    //{ { -1.0f + imageOffsetX,  1.0f - imageOffsetY, 0.0f }, { 1.0f, 1.0f } },
-    {{-0.5f, -0.5f , 0.0f}, {1.0f, 0.0f}},
-    {{0.5f, -0.5f  , 0.0f}, {0.0f, 0.0f}},
-    {{0.5f, 0.5f   , 0.0f}, {0.0f, 1.0f}},
-    {{-0.5f, 0.5f  , 0.0f}, {1.0f, 1.0f}}
-    //{ { -1.0f + imageOffsetX, -1.0f + imageOffsetY, 0.0f }, { 0.0f, 0.0f } },
-    //{ {  1.0f - imageOffsetX, -1.0f + imageOffsetY, 0.0f }, { 1.0f, 0.0f } },
-    //{ {  1.0f - imageOffsetX,  1.0f - imageOffsetY, 0.0f }, { 1.0f, 1.0f } },
-    //{ { -1.0f + imageOffsetX,  1.0f - imageOffsetY, 0.0f }, { 0.0f, 1.0f } },
+    { { -ratio, -1.0f, 0.0f}, {1.0f, 0.0f}},
+    { {  ratio, -1.0f, 0.0f}, {0.0f, 0.0f}},
+    { {  ratio,  1.0f, 0.0f}, {0.0f, 1.0f}},
+    { { -ratio,  1.0f, 0.0f}, {1.0f, 1.0f}}
   };
   std::vector<uint16_t> indices = { 0, 1, 2, 2, 3, 0 };
 
@@ -309,9 +302,13 @@ int main(int argc, char** argv)
     GETOUT(1);
   }
 
-  auto samplerCreation = CreateSampler(device, VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, 1, VK_FALSE);
+  auto samplerCreation = CreateSampler(device, VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, 1, VK_TRUE);
   CHECK_RESULT(samplerCreation, "could not create sampler");
   VkSampler sampler = std::get<VkSampler>(samplerCreation);
+
+  samplerCreation = CreateSampler(device, VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, 1, VK_FALSE);
+  CHECK_RESULT(samplerCreation, "could not create sampler");
+  VkSampler presentSampler = std::get<VkSampler>(samplerCreation);
 
   VkDescriptorSetLayoutBinding binding = CreateDescriptorSetLayoutBinding(0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
   auto descriptorSetLayoutCreation = CreateDescriptorSetLayout(device, { binding });
@@ -333,15 +330,15 @@ int main(int argc, char** argv)
   CHECK_RESULT(piplineLayoutCreation, "could not create VkPipelineLayout");
   VkPipelineLayout presentPipelineLayout = std::get<VkPipelineLayout>(piplineLayoutCreation);
 
-  VkDescriptorImageInfo image1Info = {};
-  image1Info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  image1Info.imageView = image1.view;
-  image1Info.sampler = sampler;
+  VkDescriptorImageInfo golImageDescriptor = {};
+  golImageDescriptor.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  golImageDescriptor.imageView = VK_NULL_HANDLE;
+  golImageDescriptor.sampler = sampler;
 
-  VkDescriptorImageInfo image2Info = {};
-  image2Info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  image2Info.imageView = image2.view;
-  image2Info.sampler = sampler;
+  VkDescriptorImageInfo presentImageDescriptor = {};
+  presentImageDescriptor.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  presentImageDescriptor.imageView = VK_NULL_HANDLE;
+  presentImageDescriptor.sampler = presentSampler;
 
   VkDescriptorBufferInfo uboBufferInfo = {};
   uboBufferInfo.offset = 0;
@@ -349,8 +346,7 @@ int main(int argc, char** argv)
   uboBufferInfo.buffer = uboBuffer.buffer;
 
   Image2D *images[] = { &image2, &image1 };
-  VkDescriptorImageInfo imageInfos[2] = { image2Info, image1Info };
-
+  
   auto attachment = CreateAttachementDescription(image1.format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   //auto attachment = CreateAttachementDescription(image1.format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
   std::vector<VkAttachmentReference> references = { { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL } };
@@ -410,7 +406,7 @@ int main(int argc, char** argv)
   auto fenceCreation = CreateFence(device);
   VkFence fence = std::get<VkFence>(fenceCreation);
 
-  std::vector<VkDescriptorImageInfo> descriptorImageInfos(1);
+  std::vector<VkDescriptorImageInfo> descriptorImageInfos = { golImageDescriptor };
 
   struct Control
   {
@@ -487,28 +483,19 @@ int main(int argc, char** argv)
     memcpy(uboData, &ubo, sizeof(Ubo));
     vkUnmapMemory(device, uboBuffer.memory);
 
-    /*for (int i = 4; i < 8; i++)
-    {
-      glm::vec4 res = ubo.projection * ubo.view * glm::vec4{ vertices[i].position.x, vertices[i].position.y, vertices[i].position.z, 1.0f };
-
-      std::cout << vertices[i].position << " => " << res << std::endl;
-    }*/
-
     vkResetCommandBuffer(command, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
 
     uint32_t imageIndex;
     vkAcquireNextImageKHR(device, swapchain.swapchain, std::numeric_limits<uint64_t>::max(), imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
 
     // swap infos
-    VkDescriptorImageInfo info = imageInfos[0];
-    imageInfos[0] = imageInfos[1];
-    imageInfos[1] = info;
-
     Image2D* temp = images[0];
     images[0] = images[1];
     images[1] = temp;
 
-    descriptorImageInfos[0] = imageInfos[0];
+    descriptorImageInfos[0].imageView = images[0]->view;
+    presentImageDescriptor.imageView = images[1]->view;
+
     auto writeDescriptorSet = CreateWriteDescriptorSet(VK_NULL_HANDLE, 0, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, {}, descriptorImageInfos);
 
     auto framebufferCreation = CreateFramebuffer(device, renderPassGoL, settings.imageWidth, settings.imageHeight, { images[1]->view });
@@ -528,7 +515,7 @@ int main(int argc, char** argv)
     VkFramebuffer frontbuffer = std::get<VkFramebuffer>(framebufferCreation);
 
     BeginCommandBuffer(command, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
-    BeginRenderPass(command, renderPassGoL, backbuffer, { settings.imageWidth, settings.imageHeight }, { { 0.0f, 0.0f, 0.0f, 0.0f } });
+    BeginRenderPass(command, renderPassGoL, backbuffer, { settings.imageWidth, settings.imageHeight }, { { 0.0f, 0.0f, 0.0f, 1.0f } });
 
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineGoL);
     vkCmdPushDescriptorSetKHR(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &writeDescriptorSet);
@@ -554,7 +541,7 @@ int main(int argc, char** argv)
     writeDescriptorSets[1].dstBinding = 1;
     writeDescriptorSets[1].descriptorCount = 1;
     writeDescriptorSets[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writeDescriptorSets[1].pImageInfo = &imageInfos[1];
+    writeDescriptorSets[1].pImageInfo = &presentImageDescriptor;
 
     BeginRenderPass(command, renderPass, frontbuffer, { settings.windowWidth, settings.windowHeight }, { { 0.12f, 0.12f, 0.12f, 1.0f } });
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
@@ -636,14 +623,13 @@ bool RenderInitialImage(const PhysicalDevice& physicalDevice, VkDevice device, V
   CHECK_RESULT_BOOL(initBufferCreation);
   Buffer initBuffer = std::get<Buffer>(initBufferCreation);
 
-  void* data;
+  
 
   // copy position data
-  VkDeviceSize positionSize = initSize;
-  vkMapMemory(device, initBuffer.memory, 0, positionSize, 0, &data);
-  memcpy(data, positions, positionSize);
+  void* data;
+  vkMapMemory(device, initBuffer.memory, 0, initSize, 0, &data);
+  memcpy(data, positions, initSize);
   vkUnmapMemory(device, initBuffer.memory);
-
 
   // create command buffer
   auto commandPoolCreation = CreateCommandPool(device, physicalDevice.graphicsQueueIndex);
