@@ -19,5 +19,5 @@ out gl_PerVertex {
 void main() 
 {
 	outUV = inUV;
-	gl_Position =  ubo.projection * ubo.view * ubo.model * vec4(inPos.xy, 0.0, 1.0);
+	gl_Position =  ubo.projection * ubo.view * ubo.model * vec4(inPos.xy, 1.0, 1.0);
 }

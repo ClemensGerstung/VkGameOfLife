@@ -39,7 +39,7 @@ namespace po = boost::program_options;
 
 constexpr uint32_t WIDTH = 1920;
 constexpr uint32_t HEIGHT = 1080;
-constexpr int32_t FPS = 25;
+constexpr int32_t FPS = 15;
 
 #define CHECK_RESULT(result, errormessage) if (std::holds_alternative<VkResult>(result)) \
                                            { \
@@ -142,12 +142,6 @@ int main(int argc, char** argv)
 
   glfwSetWindowPos(window, (mode->width - settings.windowWidth) / 2, (mode->height - settings.windowHeight) / 2);
 
-  auto onScroll = [](GLFWwindow* window, double xoffset, double yoffset)
-  {
-    std::cout << "[ " << xoffset << ", " << yoffset << " ]" << std::endl;
-  };
-  glfwSetScrollCallback(window, onScroll);
-
   VkSurfaceKHR surface;
   auto result = glfwCreateWindowSurface(instance, window, nullptr, &surface);
   if (result != VK_SUCCESS)
@@ -214,11 +208,61 @@ int main(int argc, char** argv)
 
   Camera camera = {};
   camera.extent = swapchain.extent;
-  camera.far = 10;
-  camera.near = 0;
-  camera.fov = 60;
-  camera.lookAt = { 0,0,0 };
-  camera.position = { 0,0,3 };
+  camera.far = 1000;
+  camera.near = 0.1f;
+  camera.fov = 12.5f;
+  camera.lookAt = { 0, 0, 0 };
+  camera.position = { 0, 0, -10 };
+
+  double xpos, ypos;
+  glfwGetCursorPos(window, &xpos, &ypos);
+
+  struct Control
+  {
+    int32_t fpsOffset = 0;
+    bool paused = false;
+    glm::vec2 lastMousePos;
+    Camera* cam;
+  } control;
+  control.cam = &camera;
+  glfwSetWindowUserPointer(window, &control);
+
+  auto onScroll = [](GLFWwindow* window, double xoffset, double yoffset)
+  {
+    Control* ctrl = (Control*)glfwGetWindowUserPointer(window);
+
+    ctrl->cam->position.z += float(yoffset) / 2.0f;
+  };
+  glfwSetScrollCallback(window, onScroll);
+
+
+  auto onMouseMove = [](GLFWwindow* window, double xpos, double ypos)
+  {
+    Control* ctrl = (Control*)glfwGetWindowUserPointer(window);
+    
+    int state = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
+    if (state == GLFW_PRESS)
+    {
+      glm::vec2 mousePos = { float(xpos), float(ypos) };
+      auto delta = mousePos - ctrl->lastMousePos;
+
+      float f = 500.0f;
+
+      ctrl->cam->position.x += (delta.x / f);
+      ctrl->cam->position.y += (delta.y / f);
+
+      ctrl->cam->lookAt.x += (delta.x / f);
+      ctrl->cam->lookAt.y += (delta.y / f);
+
+      ctrl->lastMousePos = mousePos;
+    }
+    else
+    {
+      ctrl->lastMousePos.x = float(xpos);
+      ctrl->lastMousePos.y = float(ypos);
+    }
+  };
+  glfwSetCursorPosCallback(window, onMouseMove);
 
   Image2D image1, image2;
 
@@ -238,6 +282,8 @@ int main(int argc, char** argv)
 
   float imageOffsetX = 0.0f, imageOffsetY = 0.0f;
   float ratio = float(settings.imageWidth) / float(settings.imageHeight);
+  float rx = std::max(float(settings.imageWidth) / float(settings.windowWidth), 1.0f);
+  float ry = std::max(float(settings.imageHeight) / float(settings.windowHeight), 1.0f);
 
   if (settings.imageWidth < settings.windowWidth)
   {
@@ -258,10 +304,10 @@ int main(int argc, char** argv)
     { { -1.0f,  1.0f, 0.0f }, { 0.0f, 0.0f } },
 
     //image rendering quad
-    { { -ratio, -1.0f, 0.0f}, {1.0f, 0.0f}},
-    { {  ratio, -1.0f, 0.0f}, {0.0f, 0.0f}},
-    { {  ratio,  1.0f, 0.0f}, {0.0f, 1.0f}},
-    { { -ratio,  1.0f, 0.0f}, {1.0f, 1.0f}}
+    { { -ratio*rx, -1.0f*ry, 0.0f}, {1.0f, 0.0f}},
+    { {  ratio*rx, -1.0f*ry, 0.0f}, {0.0f, 0.0f}},
+    { {  ratio*rx,  1.0f*ry, 0.0f}, {0.0f, 1.0f}},
+    { { -ratio*rx,  1.0f*ry, 0.0f}, {1.0f, 1.0f}}
   };
   std::vector<uint16_t> indices = { 0, 1, 2, 2, 3, 0 };
 
@@ -332,12 +378,12 @@ int main(int argc, char** argv)
 
   VkDescriptorImageInfo golImageDescriptor = {};
   golImageDescriptor.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  golImageDescriptor.imageView = VK_NULL_HANDLE;
+  golImageDescriptor.imageView = image2.view;
   golImageDescriptor.sampler = sampler;
 
   VkDescriptorImageInfo presentImageDescriptor = {};
   presentImageDescriptor.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  presentImageDescriptor.imageView = VK_NULL_HANDLE;
+  presentImageDescriptor.imageView = image1.view;
   presentImageDescriptor.sampler = presentSampler;
 
   VkDescriptorBufferInfo uboBufferInfo = {};
@@ -346,7 +392,7 @@ int main(int argc, char** argv)
   uboBufferInfo.buffer = uboBuffer.buffer;
 
   Image2D *images[] = { &image2, &image1 };
-  
+
   auto attachment = CreateAttachementDescription(image1.format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   //auto attachment = CreateAttachementDescription(image1.format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
   std::vector<VkAttachmentReference> references = { { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL } };
@@ -408,14 +454,6 @@ int main(int argc, char** argv)
 
   std::vector<VkDescriptorImageInfo> descriptorImageInfos = { golImageDescriptor };
 
-  struct Control
-  {
-    int32_t fpsOffset = 0;
-    bool paused = false;
-  } control;
-
-
-  glfwSetWindowUserPointer(window, &control);
   auto onKeyPressed = [](GLFWwindow* window, int key, int scancode, int action, int mods) -> void
   {
     Control* ctrl = (Control*)glfwGetWindowUserPointer(window);
@@ -466,16 +504,12 @@ int main(int argc, char** argv)
     auto current = std::chrono::system_clock::now();
     auto d = current - start;
     auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(d);
-    if (diff.count() <= (1000 / (FPS + control.fpsOffset)))
-    {
-      continue;
-    }
-    start = std::chrono::system_clock::now();
+
 
     // write ubo
     ubo.model = glm::mat4(1);
-    ubo.view = glm::lookAt(glm::vec3(0.0f, 0.0f, -2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-    ubo.projection = glm::perspective(glm::radians(45.0f), camera.extent.width / (float)camera.extent.height, 0.1f, 10.0f);
+    ubo.view = glm::lookAt(camera.position, camera.lookAt, glm::vec3(0.0f, 1.0f, 0.0f));
+    ubo.projection = glm::perspective(glm::radians(camera.fov), camera.extent.width / (float)camera.extent.height, camera.near, camera.far);
     ubo.projection[1][1] *= -1;
 
     void* uboData;
@@ -488,45 +522,53 @@ int main(int argc, char** argv)
     uint32_t imageIndex;
     vkAcquireNextImageKHR(device, swapchain.swapchain, std::numeric_limits<uint64_t>::max(), imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
 
-    // swap infos
-    Image2D* temp = images[0];
-    images[0] = images[1];
-    images[1] = temp;
-
-    descriptorImageInfos[0].imageView = images[0]->view;
-    presentImageDescriptor.imageView = images[1]->view;
-
-    auto writeDescriptorSet = CreateWriteDescriptorSet(VK_NULL_HANDLE, 0, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, {}, descriptorImageInfos);
-
-    auto framebufferCreation = CreateFramebuffer(device, renderPassGoL, settings.imageWidth, settings.imageHeight, { images[1]->view });
-    if (std::holds_alternative<VkResult>(framebufferCreation))
-    {
-      // bad things happened
-      continue;
-    }
-    VkFramebuffer backbuffer = std::get<VkFramebuffer>(framebufferCreation);
-
-    framebufferCreation = CreateFramebuffer(device, renderPass, settings.windowWidth, settings.windowHeight, { swapchain.imageViews[imageIndex] });
+    auto framebufferCreation = CreateFramebuffer(device, renderPass, settings.windowWidth, settings.windowHeight, { swapchain.imageViews[imageIndex] });
     if (std::holds_alternative<VkResult>(framebufferCreation))
     {
       // bad things happened
       continue;
     }
     VkFramebuffer frontbuffer = std::get<VkFramebuffer>(framebufferCreation);
+    VkFramebuffer backbuffer = VK_NULL_HANDLE;
 
-    BeginCommandBuffer(command, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
-    BeginRenderPass(command, renderPassGoL, backbuffer, { settings.imageWidth, settings.imageHeight }, { { 0.0f, 0.0f, 0.0f, 1.0f } });
-
-    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineGoL);
-    vkCmdPushDescriptorSetKHR(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &writeDescriptorSet);
 
     VkDeviceSize offsets[1] = { 0 };
-    vkCmdBindVertexBuffers(command, 0, 1, &deviceBuffer.buffer, offsets);
-    vkCmdBindIndexBuffer(command, deviceBuffer.buffer, vertexSize, VK_INDEX_TYPE_UINT16);
+    BeginCommandBuffer(command, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 
-    vkCmdDrawIndexed(command, 6, 1, 0, 0, 0);
+    if (diff.count() >= (1000 / (FPS + control.fpsOffset)))
+    {
+      // swap infos
+      Image2D* temp = images[0];
+      images[0] = images[1];
+      images[1] = temp;
 
-    vkCmdEndRenderPass(command);
+      descriptorImageInfos[0].imageView = images[0]->view;
+      presentImageDescriptor.imageView = images[1]->view;
+
+      auto framebufferCreation = CreateFramebuffer(device, renderPassGoL, settings.imageWidth, settings.imageHeight, { images[1]->view });
+      if (std::holds_alternative<VkResult>(framebufferCreation))
+      {
+        // bad things happened
+        continue;
+      }
+      backbuffer = std::get<VkFramebuffer>(framebufferCreation);
+
+      auto writeDescriptorSet = CreateWriteDescriptorSet(VK_NULL_HANDLE, 0, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, {}, descriptorImageInfos);
+
+      BeginRenderPass(command, renderPassGoL, backbuffer, { settings.imageWidth, settings.imageHeight }, { { 0.0f, 0.0f, 0.0f, 1.0f } });
+
+      vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineGoL);
+      vkCmdPushDescriptorSetKHR(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &writeDescriptorSet);
+
+      vkCmdBindVertexBuffers(command, 0, 1, &deviceBuffer.buffer, offsets);
+      vkCmdBindIndexBuffer(command, deviceBuffer.buffer, vertexSize, VK_INDEX_TYPE_UINT16);
+
+      vkCmdDrawIndexed(command, 6, 1, 0, 0, 0);
+
+      vkCmdEndRenderPass(command);
+
+      start = std::chrono::system_clock::now();
+    }
 
     std::array<VkWriteDescriptorSet, 2> writeDescriptorSets = {};
     writeDescriptorSets[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -586,7 +628,11 @@ int main(int argc, char** argv)
     vkResetFences(device, 1, &fence);
 
     vkDestroyFramebuffer(device, frontbuffer, nullptr);
-    vkDestroyFramebuffer(device, backbuffer, nullptr);
+
+    if (backbuffer != VK_NULL_HANDLE)
+    {
+      vkDestroyFramebuffer(device, backbuffer, nullptr);
+    }
   }
 
 
@@ -623,7 +669,7 @@ bool RenderInitialImage(const PhysicalDevice& physicalDevice, VkDevice device, V
   CHECK_RESULT_BOOL(initBufferCreation);
   Buffer initBuffer = std::get<Buffer>(initBufferCreation);
 
-  
+
 
   // copy position data
   void* data;
