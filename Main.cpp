@@ -27,6 +27,7 @@
 #include <thread>
 
 #include "Structs.h"
+#include "Camera.h"
 #include "GameOfLifeVulkan.h"
 
 #if _WIN32
@@ -206,13 +207,8 @@ int main(int argc, char** argv)
 
   Ubo ubo = {};
 
-  Camera camera = {};
-  camera.extent = swapchain.extent;
-  camera.far = 1000;
-  camera.near = 0.1f;
-  camera.fov = 12.5f;
-  camera.lookAt = { 0, 0, 0 };
-  camera.position = { 0, 0, -10 };
+  Camera camera = { swapchain.extent, { 0, 0, -10 } };
+  ubo.mat = camera.WorldToScreenMatrix();
 
   double xpos, ypos;
   glfwGetCursorPos(window, &xpos, &ypos);
@@ -223,15 +219,17 @@ int main(int argc, char** argv)
     bool paused = false;
     glm::vec2 lastMousePos;
     Camera* cam;
+    Settings* settings;
   } control;
   control.cam = &camera;
+  control.settings = &settings;
+
   glfwSetWindowUserPointer(window, &control);
 
   auto onScroll = [](GLFWwindow* window, double xoffset, double yoffset)
   {
     Control* ctrl = (Control*)glfwGetWindowUserPointer(window);
-
-    ctrl->cam->position.z += float(yoffset) / 2.0f;
+    ctrl->cam->Move({ 0, 0, float(yoffset) / 4.0f });
   };
   glfwSetScrollCallback(window, onScroll);
 
@@ -243,18 +241,18 @@ int main(int argc, char** argv)
     int state = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
     if (state == GLFW_PRESS)
     {
-      glm::vec2 mousePos = { float(xpos), float(ypos) };
-      auto delta = mousePos - ctrl->lastMousePos;
+      auto screen = glm::vec2(float(xpos), float(ypos));
 
-      float f = 500.0f;
+      auto last = ctrl->cam->ScreenToWorld(uint32_t(ctrl->lastMousePos.x), uint32_t(ctrl->lastMousePos.y));
+      auto world = ctrl->cam->ScreenToWorld(uint32_t(screen.x), uint32_t(screen.y));
+      
+      auto delta = last - world;
+      //std::cout << delta << std::endl;
+      delta.z = 0.0;
 
-      ctrl->cam->position.x += (delta.x / f);
-      ctrl->cam->position.y += (delta.y / f);
+      ctrl->cam->Move(delta);
 
-      ctrl->cam->lookAt.x += (delta.x / f);
-      ctrl->cam->lookAt.y += (delta.y / f);
-
-      ctrl->lastMousePos = mousePos;
+      ctrl->lastMousePos = screen;
     }
     else
     {
@@ -281,7 +279,8 @@ int main(int argc, char** argv)
   Buffer uboBuffer = std::get<Buffer>(uboBufferCreation);
 
   float imageOffsetX = 0.0f, imageOffsetY = 0.0f;
-  float ratio = float(settings.imageWidth) / float(settings.imageHeight);
+  //float ratio = float(settings.imageWidth) / float(settings.imageHeight);
+  float ratio = float(settings.imageHeight) / float(settings.imageWidth);
   float rx = std::max(float(settings.imageWidth) / float(settings.windowWidth), 1.0f);
   float ry = std::max(float(settings.imageHeight) / float(settings.windowHeight), 1.0f);
 
@@ -304,10 +303,14 @@ int main(int argc, char** argv)
     { { -1.0f,  1.0f, 0.0f }, { 0.0f, 0.0f } },
 
     //image rendering quad
-    { { -ratio*rx, -1.0f*ry, 0.0f}, {1.0f, 0.0f}},
-    { {  ratio*rx, -1.0f*ry, 0.0f}, {0.0f, 0.0f}},
-    { {  ratio*rx,  1.0f*ry, 0.0f}, {0.0f, 1.0f}},
-    { { -ratio*rx,  1.0f*ry, 0.0f}, {1.0f, 1.0f}}
+    //{ { -ratio, -1.0f, 0.0f}, {1.0f, 0.0f}},
+    //{ {  ratio, -1.0f, 0.0f}, {0.0f, 0.0f}},
+    //{ {  ratio,  1.0f, 0.0f}, {0.0f, 1.0f}},
+    //{ { -ratio,  1.0f, 0.0f}, {1.0f, 1.0f}},
+    { { -1.0f, -ratio * 2.0f, 0.0f}, {1.0f, 0.0f}},
+    { {  1.0f, -ratio * 2.0f, 0.0f}, {0.0f, 0.0f}},
+    { {  1.0f,  ratio * 2.0f, 0.0f}, {0.0f, 1.0f}},
+    { { -1.0f,  ratio * 2.0f, 0.0f}, {1.0f, 1.0f}}
   };
   std::vector<uint16_t> indices = { 0, 1, 2, 2, 3, 0 };
 
@@ -507,10 +510,7 @@ int main(int argc, char** argv)
 
 
     // write ubo
-    ubo.model = glm::mat4(1);
-    ubo.view = glm::lookAt(camera.position, camera.lookAt, glm::vec3(0.0f, 1.0f, 0.0f));
-    ubo.projection = glm::perspective(glm::radians(camera.fov), camera.extent.width / (float)camera.extent.height, camera.near, camera.far);
-    ubo.projection[1][1] *= -1;
+    ubo.mat = camera.WorldToScreenMatrix();
 
     void* uboData;
     vkMapMemory(device, uboBuffer.memory, 0, sizeof(Ubo), 0, &uboData);

@@ -96,18 +96,5 @@ struct Vertex {
 
 struct Ubo
 {
-  alignas(16) glm::mat4 model;
-  alignas(16) glm::mat4 view;
-  alignas(16) glm::mat4 projection;
-};
-
-struct Camera
-{
-  VkExtent2D extent;
-  float fov;
-  float near;
-  float far;
-
-  glm::vec3 position;
-  glm::vec3 lookAt;
+  alignas(16) glm::mat4 mat;
 };
